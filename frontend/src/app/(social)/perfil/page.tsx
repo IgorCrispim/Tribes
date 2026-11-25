@@ -149,7 +149,7 @@ export default function ProfileSettingsPage() {
               <label htmlFor="profile-avatar" className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm font-medium transition-colors hover:bg-muted">
                 <Camera className="size-4" />Escolher foto
               </label>
-              <Input id="profile-avatar" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectAvatar} className="sr-only" aria-label="Escolher foto de perfil" />
+              <input id="profile-avatar" type="file" accept="image/jpeg,image/png,image/webp" onChange={selectAvatar} className="sr-only" aria-label="Escolher foto de perfil" />
               {previewUrl && <Button type="button" variant="ghost" size="sm" onClick={() => { setAvatar(null); setSaved(false); }}><Trash2 className="size-4" />Remover</Button>}
             </div>
           </div>
