@@ -49,6 +49,7 @@ import {
   waitForEmailQueueDelivery,
   getUserProfileImage,
   joinTribe,
+  listPopularPublicTribes,
   leaveTribe,
   listComments,
   searchTribes,
@@ -182,7 +183,7 @@ export async function handleSocialRequest(request, response, url) {
   const routeKnown = pathname.startsWith("/api/auth/") || pathname === "/api/maps-config" ||
     pathname === "/api/profile" || /^\/api\/users\/[^/]+\/(?:profile|avatar)$/.test(pathname) ||
     pathname === "/api/dm/users" || pathname === "/api/dm/conversations" || /^\/api\/dm\/conversations\/[^/]+(?:\/messages)?$/.test(pathname) ||
-    pathname === "/api/feed" || pathname === "/api/saved" || /^\/api\/content\/[^/]+$/.test(pathname) || /^\/api\/content\/[^/]+\/save$/.test(pathname) || pathname === "/api/events" || pathname === "/api/notifications" || /^\/api\/notifications\/[^/]+\/read$/.test(pathname) || pathname === "/api/notifications/read-all" || pathname === "/api/tribes" ||
+    pathname === "/api/feed" || pathname === "/api/saved" || /^\/api\/content\/[^/]+$/.test(pathname) || /^\/api\/content\/[^/]+\/save$/.test(pathname) || pathname === "/api/events" || pathname === "/api/notifications" || /^\/api\/notifications\/[^/]+\/read$/.test(pathname) || pathname === "/api/notifications/read-all" || pathname === "/api/tribes" || pathname === "/api/public/tribes" ||
     /^\/api\/tribes\/[^/]+$/.test(pathname) || /^\/api\/tribes\/[^/]+\/(?:join|membership|posts|events|members|messages)$/.test(pathname) || /^\/api\/tribes\/[^/]+\/messages\/[^/]+$/.test(pathname) ||
     /^\/api\/content\/[^/]+\/image$/.test(pathname) ||
     /^\/api\/content\/[^/]+\/(?:like|comments|attendance|vote)$/.test(pathname) ||
@@ -321,6 +322,11 @@ export async function handleSocialRequest(request, response, url) {
     if (pathname === "/api/auth/logout" && method === "POST") {
       await deleteSession(readCookie(request, SESSION_COOKIE));
       return sendJson(response, 200, { ok: true }, { "Set-Cookie": clearSessionCookie() }), true;
+    }
+
+    if (pathname === "/api/public/tribes" && method === "GET") {
+      const tribes = await listPopularPublicTribes(3);
+      return sendJson(response, 200, { tribes }, { "Cache-Control": "no-store" }), true;
     }
 
     const publicTribeMatch = pathname.match(/^\/api\/tribes\/([^/]+)$/);

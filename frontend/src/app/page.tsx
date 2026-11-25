@@ -5,17 +5,20 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { Navbar } from "@/components/tribes/navbar";
-import { HeroMockup } from "@/components/tribes/hero-mockup";
 import { Button } from "@/components/ui/button";
-import { TribeExplorer } from "@/components/tribes/tribe-explorer";
 import { trackMvpEvent } from "@/lib/mvp-tracker";
 import { SiteFooter } from "@/components/tribes/site-footer";
 import { AuthLoadingState } from "@/components/social/auth-guard";
+import { apiRequest, type Tribe } from "@/lib/social-types";
+import { FeaturedHomeTribe, PopularHomeTribes } from "@/components/tribes/home-tribe-highlights";
 
 export default function TribesLandingPage() {
   const router = useRouter();
   const [sessionState, setSessionState] = useState<"loading" | "guest" | "error">("loading");
   const [retryCount, setRetryCount] = useState(0);
+  const [tribes, setTribes] = useState<Tribe[]>([]);
+  const [tribesLoading, setTribesLoading] = useState(true);
+  const [tribesError, setTribesError] = useState("");
 
   useEffect(() => {
     void trackMvpEvent({ event: "page_view", pagePath: "/" });
@@ -37,6 +40,17 @@ export default function TribesLandingPage() {
       .catch(() => { if (active) setSessionState("error"); });
     return () => { active = false; };
   }, [router, retryCount]);
+
+  useEffect(() => {
+    let active = true;
+    apiRequest<{ tribes: Tribe[] }>("/api/public/tribes", { cache: "no-store" })
+      .then(({ tribes: currentTribes }) => { if (active) setTribes(currentTribes); })
+      .catch((error: unknown) => {
+        if (active) setTribesError(error instanceof Error ? error.message : "Não foi possível carregar as tribos.");
+      })
+      .finally(() => { if (active) setTribesLoading(false); });
+    return () => { active = false; };
+  }, []);
 
   if (sessionState === "loading") return <AuthLoadingState />;
   if (sessionState === "error") return (
@@ -74,17 +88,13 @@ export default function TribesLandingPage() {
               </div>
 
             </div>
-            <div className="lg:col-span-6"><HeroMockup /></div>
+            <div className="lg:col-span-6"><FeaturedHomeTribe tribe={tribes[0] ?? null} loading={tribesLoading} error={tribesError} /></div>
           </div>
         </section>
         <section className="relative overflow-hidden bg-background py-12 sm:py-16">
           <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-accent/60 to-transparent" />
           <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
-            <TribeExplorer
-              compact
-              onSelectTribeForSignup={() => { router.push("/cadastro"); }}
-              onExplorerInteract={(interest) => { void trackMvpEvent({ event: "explorer_interaction", category: interest }); }}
-            />
+            <PopularHomeTribes tribes={tribes} loading={tribesLoading} error={tribesError} />
             <div className="mt-2 text-center">
               <Button variant="outline" className="rounded-full" nativeButton={false} render={<Link href="/explorar" />}>Ver todas as tribos <ArrowRight className="size-4" /></Button>
             </div>

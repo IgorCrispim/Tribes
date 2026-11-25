@@ -483,6 +483,14 @@ integrationTest("authenticated social feed, event attendance, likes, comments an
   const privateTribe = privateCreated.data.tribe;
   tribeIds.push(privateTribe.id);
   assert.equal(privateTribe.isPrivate, true);
+  const popularPublicTribes = await call(null, "/api/public/tribes");
+  assert.equal(popularPublicTribes.response.status, 200, JSON.stringify(popularPublicTribes.data));
+  assert.ok(popularPublicTribes.data.tribes.length <= 3);
+  assert.equal(popularPublicTribes.data.tribes.some((tribe) => tribe.id === privateTribe.id), false);
+  assert.deepEqual(
+    popularPublicTribes.data.tribes.map((tribe) => tribe.memberCount),
+    [...popularPublicTribes.data.tribes.map((tribe) => tribe.memberCount)].sort((a, b) => b - a)
+  );
   const storedPrivate = (await pool.query("SELECT is_private, password_hash FROM tribes WHERE id = $1", [privateTribe.id])).rows[0];
   assert.equal(storedPrivate.is_private, true);
   assert.notEqual(storedPrivate.password_hash, privatePassword);

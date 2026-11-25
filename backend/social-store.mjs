@@ -646,6 +646,33 @@ export async function searchTribes(userId, { query = "", mine = false, managed =
   }));
 }
 
+export async function listPopularPublicTribes(limit = 3) {
+  const { rows } = await pool.query(
+    `SELECT t.id, t.name, t.description, t.category, t.format, t.city, t.neighborhood,
+            t.created_at, COUNT(DISTINCT m.user_id)::int AS member_count
+     FROM tribes t
+     LEFT JOIN tribe_memberships m ON m.tribe_id = t.id AND m.status = 'active'
+     WHERE t.is_private = FALSE
+     GROUP BY t.id
+     ORDER BY member_count DESC, t.created_at DESC, t.id DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    category: row.category,
+    format: row.format,
+    city: row.city,
+    neighborhood: row.neighborhood,
+    createdAt: row.created_at,
+    memberCount: row.member_count,
+    isMember: false,
+    isPrivate: false,
+  }));
+}
+
 export async function getPublicTribe(tribeId) {
   const { rows } = await pool.query(
     `SELECT t.id, t.name, t.description, t.category, t.format, t.city, t.neighborhood,
