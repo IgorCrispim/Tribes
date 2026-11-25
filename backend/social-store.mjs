@@ -3,7 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { digestSessionToken } from "./security.mjs";
+import { digestSessionToken, verifyPassword } from "./security.mjs";
 import { getObjectStorage } from "./object-storage.mjs";
 import { SESSION_MAX_AGE_SECONDS, SESSION_RENEW_THRESHOLD_SECONDS } from "./session-policy.mjs";
 
@@ -613,7 +613,7 @@ export async function getUserProfileImage(userId) {
 export async function searchTribes(userId, { query = "", mine = false, managed = false, limit = 40 }) {
   const { rows } = await pool.query(
     `SELECT t.id, t.name, t.description, t.category, t.format, t.city, t.neighborhood,
-            t.created_at, (t.moderator_id = $1) AS is_moderator,
+            t.created_at, t.is_private, (t.moderator_id = $1) AS is_moderator,
             COUNT(DISTINCT m.user_id)::int AS member_count,
             COALESCE(bool_or(m.user_id = $1 AND m.status = 'active'), false) AS is_member
      FROM tribes t
@@ -642,13 +642,14 @@ export async function searchTribes(userId, { query = "", mine = false, managed =
     memberCount: row.member_count,
     isMember: row.is_member,
     isModerator: row.is_moderator,
+    isPrivate: row.is_private,
   }));
 }
 
 export async function getPublicTribe(tribeId) {
   const { rows } = await pool.query(
     `SELECT t.id, t.name, t.description, t.category, t.format, t.city, t.neighborhood,
-            t.created_at, COUNT(DISTINCT m.user_id)::int AS member_count
+            t.created_at, t.is_private, COUNT(DISTINCT m.user_id)::int AS member_count
      FROM tribes t
      LEFT JOIN tribe_memberships m ON m.tribe_id = t.id AND m.status = 'active'
      WHERE t.id = $1
@@ -660,7 +661,7 @@ export async function getPublicTribe(tribeId) {
   return {
     id: row.id, name: row.name, description: row.description, category: row.category,
     format: row.format, city: row.city, neighborhood: row.neighborhood,
-    createdAt: row.created_at, memberCount: row.member_count, isMember: false,
+    createdAt: row.created_at, memberCount: row.member_count, isMember: false, isPrivate: row.is_private,
   };
 }
 
@@ -670,17 +671,17 @@ export async function createTribe(userId, tribe) {
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
-      `INSERT INTO tribes (name, description, category, format, city, neighborhood, created_by, moderator_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+      `INSERT INTO tribes (name, description, category, format, city, neighborhood, created_by, moderator_id, is_private, password_hash)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9)
        RETURNING id, name, description, category, format, city, neighborhood, created_at`,
-      [tribe.name, tribe.description, tribe.category, tribe.format, tribe.city, tribe.neighborhood, userId]
+      [tribe.name, tribe.description, tribe.category, tribe.format, tribe.city, tribe.neighborhood, userId, tribe.isPrivate, tribe.passwordHash]
     );
     await client.query(
       "INSERT INTO tribe_memberships (tribe_id, user_id) VALUES ($1, $2)",
       [rows[0].id, userId]
     );
     await client.query("COMMIT");
-    return { ...rows[0], memberCount: 1, isMember: true, createdAt: rows[0].created_at };
+    return { ...rows[0], memberCount: 1, isMember: true, isPrivate: tribe.isPrivate, createdAt: rows[0].created_at };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -736,16 +737,32 @@ export async function deleteTribe(userId, tribeId, confirmationName) {
   return true;
 }
 
-export async function joinTribe(userId, tribeId) {
-  const { rows } = await pool.query(
-    `INSERT INTO tribe_memberships (tribe_id, user_id, status, joined_at, left_at)
-     SELECT id, $2, 'active', CURRENT_TIMESTAMP, NULL FROM tribes WHERE id = $1
-     ON CONFLICT (tribe_id, user_id)
-     DO UPDATE SET status = 'active', joined_at = CURRENT_TIMESTAMP, left_at = NULL
-     RETURNING tribe_id`,
-    [tribeId, userId]
-  );
-  return rows.length > 0;
+export async function joinTribe(userId, tribeId, password) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query("SELECT is_private, password_hash FROM tribes WHERE id = $1 FOR UPDATE", [tribeId]);
+    if (!rows.length) { await client.query("ROLLBACK"); return "not_found"; }
+    if (rows[0].is_private && (typeof password !== "string" || password.length === 0 || password.length > 128 || !(await verifyPassword(password, rows[0].password_hash)))) {
+      await client.query("ROLLBACK");
+      return "invalid_password";
+    }
+    await client.query(
+      `INSERT INTO tribe_memberships (tribe_id, user_id, status, joined_at, left_at)
+       VALUES ($1, $2, 'active', CURRENT_TIMESTAMP, NULL)
+       ON CONFLICT (tribe_id, user_id)
+       DO UPDATE SET status = 'active', joined_at = CURRENT_TIMESTAMP, left_at = NULL
+       WHERE tribe_memberships.status <> 'active'`,
+      [tribeId, userId]
+    );
+    await client.query("COMMIT");
+    return "joined";
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function leaveTribe(userId, tribeId) {

@@ -745,6 +745,14 @@ export async function handleSocialRequest(request, response, url) {
       const payload = await readJson(request);
       const format = payload.format;
       if (!["Presencial", "Híbrido", "Online"].includes(format)) throw invalid("Formato de tribo inválido.");
+      const isPrivate = payload.isPrivate ?? false;
+      if (typeof isPrivate !== "boolean") throw invalid("Tipo de tribo inválido.");
+      if (isPrivate) {
+        if (typeof payload.password !== "string" || !payload.password.trim() || payload.password.length > 128 || typeof payload.passwordConfirmation !== "string" || !payload.passwordConfirmation.trim()) {
+          throw invalid("Informe a senha da tribo e sua confirmação (até 128 caracteres).");
+        }
+        if (payload.password !== payload.passwordConfirmation) throw invalid("As senhas da tribo não coincidem.");
+      }
       const tribe = await createTribe(user.id, {
         name: requiredString(payload.name, "nome", 2, 80),
         description: requiredString(payload.description, "descrição", 2, 1000),
@@ -752,6 +760,8 @@ export async function handleSocialRequest(request, response, url) {
         format,
         city: requiredString(payload.city, "cidade", 2, 100),
         neighborhood: typeof payload.neighborhood === "string" ? payload.neighborhood.trim().slice(0, 100) : "",
+        isPrivate,
+        passwordHash: isPrivate ? await hashPassword(payload.password) : null,
       });
       sendJson(response, 201, { tribe });
       return true;
@@ -761,9 +771,18 @@ export async function handleSocialRequest(request, response, url) {
     if (membershipMatch && ["POST", "DELETE"].includes(method)) {
       const tribeId = requireUuid(membershipMatch[1], "Tribo");
       const joined = method === "POST";
-      const result = joined ? await joinTribe(user.id, tribeId) : await leaveTribe(user.id, tribeId);
-      const success = joined ? result : true;
-      if (!success && joined) {
+      if (joined && !allowAuthAttempt(request, `tribe-join:${tribeId}`)) {
+        sendJson(response, 429, { error: "Muitas tentativas. Aguarde um minuto e tente novamente." }, { "Retry-After": "60" });
+        return true;
+      }
+      const hasBody = Number(request.headers["content-length"] ?? 0) > 0 || Boolean(request.headers["transfer-encoding"]);
+      const payload = joined && hasBody ? await readJson(request, { maxSize: 4096 }) : {};
+      const result = joined ? await joinTribe(user.id, tribeId, payload.password) : await leaveTribe(user.id, tribeId);
+      if (joined && result === "invalid_password") {
+        sendJson(response, 403, { error: "Senha da tribo incorreta ou não informada." });
+        return true;
+      }
+      if (joined && result === "not_found") {
         const error = new Error("Tribo não encontrada.");
         error.statusCode = 404;
         throw error;

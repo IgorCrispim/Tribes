@@ -17,6 +17,7 @@ export interface Tribe {
   createdAt: string;
   memberCount: number;
   isMember: boolean;
+  isPrivate: boolean;
   isModerator?: boolean;
 }
 

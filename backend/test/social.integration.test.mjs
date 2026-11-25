@@ -465,6 +465,58 @@ integrationTest("authenticated social feed, event attendance, likes, comments an
   const tribeTwo = await createTribe(alice, "two");
   const outsiderTribe = await createTribe(bob, "private-to-bob");
 
+  const privatePassword = "Senha privada de teste!";
+  const privatePayload = {
+    name: `${marker} privada`, description: "Tribo privada de teste.", category: "Games",
+    format: "Online", city: "Belo Horizonte", neighborhood: "", isPrivate: true,
+    password: privatePassword, passwordConfirmation: privatePassword,
+  };
+  const createPrivate = (payload) => call(alice, "/api/tribes", { method: "POST", body: JSON.stringify(payload) });
+  for (const payload of [
+    { ...privatePayload, passwordConfirmation: "diferente" },
+    { ...privatePayload, password: "" },
+    { ...privatePayload, passwordConfirmation: "" },
+    { ...privatePayload, passwordConfirmation: undefined },
+  ]) assert.equal((await createPrivate(payload)).response.status, 400);
+  const privateCreated = await createPrivate(privatePayload);
+  assert.equal(privateCreated.response.status, 201);
+  const privateTribe = privateCreated.data.tribe;
+  tribeIds.push(privateTribe.id);
+  assert.equal(privateTribe.isPrivate, true);
+  const storedPrivate = (await pool.query("SELECT is_private, password_hash FROM tribes WHERE id = $1", [privateTribe.id])).rows[0];
+  assert.equal(storedPrivate.is_private, true);
+  assert.notEqual(storedPrivate.password_hash, privatePassword);
+  assert.match(storedPrivate.password_hash, /^scrypt\$/);
+  const publicStored = (await pool.query("SELECT is_private, password_hash FROM tribes WHERE id = $1", [tribeOne.id])).rows[0];
+  assert.deepEqual(publicStored, { is_private: false, password_hash: null });
+  const privateList = await call(bob, "/api/tribes");
+  assert.equal(privateList.data.tribes.find((tribe) => tribe.id === privateTribe.id)?.isPrivate, true);
+  assert.equal(privateList.data.tribes.find((tribe) => tribe.id === tribeOne.id)?.isPrivate, false);
+  const privateDetail = await call(null, `/api/tribes/${privateTribe.id}`);
+  for (const data of [privateCreated.data, privateList.data, privateDetail.data]) {
+    const serialized = JSON.stringify(data);
+    assert.equal(serialized.includes(privatePassword), false);
+    assert.equal(serialized.includes(storedPrivate.password_hash), false);
+    assert.equal(serialized.includes("password_hash"), false);
+  }
+  const privateJoinPath = `/api/tribes/${privateTribe.id}/join`;
+  assert.equal((await call(null, privateJoinPath, { method: "POST", body: JSON.stringify({ password: privatePassword }) })).response.status, 401);
+  assert.equal((await call(bob, privateJoinPath, { method: "POST" })).response.status, 403);
+  assert.equal((await call(bob, privateJoinPath, { method: "POST", body: JSON.stringify({ password: "errada" }) })).response.status, 403);
+  assert.equal((await pool.query("SELECT 1 FROM tribe_memberships WHERE tribe_id = $1 AND user_id = $2 AND status = 'active'", [privateTribe.id, bob.user.id])).rowCount, 0);
+  assert.equal((await call(bob, privateJoinPath, { method: "POST", body: JSON.stringify({ password: privatePassword }) })).response.status, 200);
+  assert.equal((await call(bob, privateJoinPath, { method: "POST", body: JSON.stringify({ password: privatePassword }) })).response.status, 200);
+  assert.equal((await pool.query("SELECT 1 FROM tribe_memberships WHERE tribe_id = $1 AND user_id = $2 AND status = 'active'", [privateTribe.id, bob.user.id])).rowCount, 1);
+  assert.equal((await call(bob, `/api/tribes/${privateTribe.id}/membership`, { method: "DELETE" })).response.status, 200);
+  assert.equal((await call(bob, privateJoinPath, { method: "POST" })).response.status, 403);
+  assert.equal((await call(bob, privateJoinPath, { method: "POST", body: JSON.stringify({ password: privatePassword }) })).response.status, 200);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    assert.equal((await call(bob, privateJoinPath, { method: "POST", body: JSON.stringify({ password: "errada" }) })).response.status, 403);
+  }
+  const limitedJoin = await call(bob, privateJoinPath, { method: "POST", body: JSON.stringify({ password: privatePassword }) });
+  assert.equal(limitedJoin.response.status, 429);
+  assert.equal(limitedJoin.response.headers.get("retry-after"), "60");
+
   const handoffTribe = await createTribe(alice, "moderator-handoff");
   assert.equal((await call(bob, `/api/tribes/${handoffTribe.id}/join`, { method: "POST" })).response.status, 200);
   assert.equal((await call(empty, `/api/tribes/${handoffTribe.id}/join`, { method: "POST" })).response.status, 200);

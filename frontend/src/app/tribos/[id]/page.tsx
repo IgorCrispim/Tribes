@@ -57,6 +57,7 @@ function TribeDetailContent() {
         createdAt: "",
         memberCount: sample.membersCount,
         isMember: false,
+        isPrivate: false,
       });
       setLoading(false);
       return () => { active = false; };

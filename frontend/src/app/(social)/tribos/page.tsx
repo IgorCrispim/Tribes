@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Compass, LoaderCircle, MapPin, Plus, Search, Users } from "lucide-react";
+import { Compass, LoaderCircle, Lock, MapPin, Plus, Search, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { apiRequest, type Tribe } from "@/lib/social-types";
 
 export default function TribesPage() {
@@ -15,6 +18,10 @@ export default function TribesPage() {
   const [tribes, setTribes] = useState<Tribe[]>([]);
   const [loading, setLoading] = useState(true);
   const [workingTribe, setWorkingTribe] = useState<string | null>(null);
+  const workingRef = useRef(false);
+  const [privateTribe, setPrivateTribe] = useState<Tribe | null>(null);
+  const [password, setPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const cities = useMemo(() => [...new Set(tribes.map((tribe) => tribe.city).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR")), [tribes]);
@@ -39,13 +46,21 @@ export default function TribesPage() {
     return () => { active = false; window.clearTimeout(timeout); };
   }, [query]);
 
-  async function toggleMembership(tribe: Tribe) {
+  async function toggleMembership(tribe: Tribe, tribePassword?: string) {
+    if (workingRef.current) return;
+    if (!tribe.isMember && tribe.isPrivate && tribePassword === undefined) {
+      setPassword("");
+      setPasswordError("");
+      setPrivateTribe(tribe);
+      return;
+    }
+    workingRef.current = true;
     setWorkingTribe(tribe.id);
     setError("");
     setMessage("");
     try {
       const joined = !tribe.isMember;
-      const result = await apiRequest<{ isMember: boolean; tribeDeleted?: boolean }>(`/api/tribes/${tribe.id}/${joined ? "join" : "membership"}`, { method: joined ? "POST" : "DELETE" });
+      const result = await apiRequest<{ isMember: boolean; tribeDeleted?: boolean }>(`/api/tribes/${tribe.id}/${joined ? "join" : "membership"}`, { method: joined ? "POST" : "DELETE", ...(tribePassword !== undefined ? { body: JSON.stringify({ password: tribePassword }) } : {}) });
       if (result.tribeDeleted) {
         setTribes((current) => current.filter((entry) => entry.id !== tribe.id));
         setMessage("Você era o único membro. A tribo foi excluída automaticamente.");
@@ -56,9 +71,12 @@ export default function TribesPage() {
         isMember: joined,
         memberCount: Math.max(0, entry.memberCount + (joined ? 1 : -1)),
       } : entry));
+      if (tribePassword !== undefined) { setPrivateTribe(null); setPassword(""); }
     } catch (membershipError) {
-      setError(membershipError instanceof Error ? membershipError.message : "Não foi possível atualizar sua participação.");
+      const message = membershipError instanceof Error ? membershipError.message : "Não foi possível atualizar sua participação.";
+      if (tribePassword !== undefined) setPasswordError(message); else setError(message);
     } finally {
+      workingRef.current = false;
       setWorkingTribe(null);
     }
   }
@@ -100,7 +118,7 @@ export default function TribesPage() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {sortedTribes.map((tribe) => <article key={tribe.id} className="flex flex-col rounded-3xl border border-border bg-card p-5 shadow-xs">
             <div className="flex items-start justify-between gap-2"><Badge variant="secondary">{tribe.category}</Badge><Badge variant="outline">{tribe.format}</Badge></div>
-            <h2 className="mt-4 font-heading text-lg font-bold">{tribe.name}</h2>
+            <h2 className="mt-4 flex items-center gap-2 font-heading text-lg font-bold"><span className="min-w-0 break-words">{tribe.name}</span>{tribe.isPrivate && <Lock className="size-4 shrink-0 text-muted-foreground" aria-label="Tribo privada" />}</h2>
             <p className="mt-2 line-clamp-3 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{tribe.description}</p>
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted-foreground">
               <span className="inline-flex items-center gap-1"><MapPin className="size-3.5 text-primary" />{[tribe.neighborhood, tribe.city].filter(Boolean).join(" · ")}</span>
@@ -117,6 +135,16 @@ export default function TribesPage() {
         <p className="mt-2 text-sm text-muted-foreground">Crie a comunidade que está procurando e convide outras pessoas.</p>
         <Button render={<Link href="/tribos/nova" />} className="mt-4 rounded-xl"><Plus className="size-4" />Criar uma tribo</Button>
       </div>}
+      <Dialog open={privateTribe !== null} onOpenChange={(open) => { if (!open && !workingRef.current) { setPrivateTribe(null); setPassword(""); setPasswordError(""); } }}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader><DialogTitle>Entrar em tribo privada</DialogTitle><DialogDescription>Informe a senha para entrar em {privateTribe?.name}.</DialogDescription></DialogHeader>
+          <form onSubmit={(event) => { event.preventDefault(); if (privateTribe && password.trim()) void toggleMembership(privateTribe, password); }} className="space-y-4">
+            <div className="space-y-1.5"><Label htmlFor="join-tribe-password">Senha da tribo</Label><PasswordInput id="join-tribe-password" value={password} onChange={(event) => setPassword(event.target.value)} maxLength={128} autoComplete="off" required /></div>
+            {passwordError && <p role="alert" className="text-sm text-destructive">{passwordError}</p>}
+            <DialogFooter><Button type="button" variant="outline" disabled={workingTribe !== null} onClick={() => { setPrivateTribe(null); setPassword(""); setPasswordError(""); }}>Cancelar</Button><Button type="submit" disabled={workingTribe !== null}>{workingTribe && <LoaderCircle className="size-4 animate-spin" />}Confirmar entrada</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
