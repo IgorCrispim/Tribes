@@ -61,6 +61,27 @@ function checkRateLimit(ip) {
   return true;
 }
 
+function isAllowedFrontendOrigin(origin) {
+  const configuredOrigins = [
+    process.env.FRONTEND_URL,
+    ...(process.env.FRONTEND_ORIGINS ?? "").split(","),
+  ];
+  const allowedOrigins = new Set();
+  for (const value of configuredOrigins) {
+    if (!value?.trim()) continue;
+    try {
+      allowedOrigins.add(new URL(value.trim()).origin);
+    } catch {
+      // Ignore malformed origin configuration; it cannot authorize a request.
+    }
+  }
+  try {
+    return allowedOrigins.has(new URL(origin).origin);
+  } catch {
+    return false;
+  }
+}
+
 const server = createServer(async (request, response) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -70,6 +91,10 @@ const server = createServer(async (request, response) => {
     response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+  const origin = request.headers.origin;
+  if (origin && !["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET") && !isAllowedFrontendOrigin(origin)) {
+    return sendJson(response, 403, { error: "Origem da requisição não permitida." });
+  }
 
   if (request.method === "GET" && pathname === "/health") {
     try {

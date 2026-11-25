@@ -5,6 +5,7 @@ import { getObjectStorage } from "./object-storage.mjs";
 import { wakeEmailQueueWorker } from "./email-queue-worker.mjs";
 import { registrationMessageForDelivery } from "./registration-message.mjs";
 import { recordAnalyticsEvent } from "./analytics-store.mjs";
+import { SESSION_IDLE_TTL_SECONDS } from "./session-policy.mjs";
 import {
   addComment,
   createDirectMessage,
@@ -41,6 +42,10 @@ import {
   getPublicUserProfile,
   getPublicTribe,
   getSessionUser,
+  listUserSessions,
+  renewSession,
+  revokeOtherUserSessions,
+  revokeUserSession,
   getUserByEmail,
   waitForEmailQueueDelivery,
   getUserProfileImage,
@@ -57,7 +62,6 @@ import {
 } from "./social-store.mjs";
 
 const SESSION_COOKIE = "tribes_session";
-const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const MAX_POST_PAYLOAD_SIZE = MAX_IMAGE_DATA_URL_SIZE;
 const MAX_PROFILE_PAYLOAD_SIZE = MAX_POST_PAYLOAD_SIZE;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -94,9 +98,9 @@ function allowAuthAttempt(request, identifier) {
   return attempt.count <= 12;
 }
 
-function sessionCookie(token) {
+function sessionCookie(token, maxAgeSeconds = SESSION_IDLE_TTL_SECONDS) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_SECONDS}${secure}`;
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}${secure}`;
 }
 
 function clearSessionCookie() {
@@ -143,8 +147,13 @@ function withUser(user, data = {}) {
   return { ...data, user: { id: user.id, name: user.name, email: user.email } };
 }
 
-async function authenticatedUser(request) {
-  return getSessionUser(readCookie(request, SESSION_COOKIE));
+async function authenticatedUser(request, response) {
+  const token = readCookie(request, SESSION_COOKIE);
+  const user = await getSessionUser(token);
+  if (!user) return null;
+  const renewedTtlSeconds = await renewSession(token, SESSION_IDLE_TTL_SECONDS);
+  if (renewedTtlSeconds !== null) response.setHeader("Set-Cookie", sessionCookie(token, renewedTtlSeconds));
+  return user;
 }
 
 function allowApiAttempt(request, user, method) {
@@ -182,7 +191,7 @@ export async function handleSocialRequest(request, response, url) {
 
   try {
     if (pathname === "/api/auth/me" && method === "GET") {
-      return sendJson(response, 200, { user: await authenticatedUser(request) }), true;
+      return sendJson(response, 200, { user: await authenticatedUser(request, response) }), true;
     }
 
     if (pathname === "/api/auth/register" && method === "POST") {
@@ -224,7 +233,7 @@ export async function handleSocialRequest(request, response, url) {
           displayName: name,
           passwordHash: await hashPassword(payload.password),
           sessionToken,
-          sessionExpiresAt: new Date(Date.now() + SESSION_TTL_SECONDS * 1000),
+          sessionExpiresAt: new Date(Date.now() + SESSION_IDLE_TTL_SECONDS * 1000),
         });
       } catch (error) {
         if (error.code === "23505") {
@@ -282,7 +291,7 @@ export async function handleSocialRequest(request, response, url) {
         tokenHash: digestSessionToken(token),
         passwordHash: await hashPassword(payload.password),
         sessionToken,
-        sessionExpiresAt: new Date(Date.now() + SESSION_TTL_SECONDS * 1000),
+        sessionExpiresAt: new Date(Date.now() + SESSION_IDLE_TTL_SECONDS * 1000),
       });
       if (!user) throw invalid("Este link é inválido, expirou ou já foi usado. Solicite um novo link.");
       return sendJson(response, 200, withUser(user), { "Set-Cookie": sessionCookie(sessionToken) }), true;
@@ -305,7 +314,7 @@ export async function handleSocialRequest(request, response, url) {
       }
       const user = { id: stored.id, name: stored.display_name, email: stored.email };
       const token = createSessionToken();
-      await createSession(user.id, token, new Date(Date.now() + SESSION_TTL_SECONDS * 1000));
+      await createSession(user.id, token, new Date(Date.now() + SESSION_IDLE_TTL_SECONDS * 1000));
       return sendJson(response, 200, withUser(user), { "Set-Cookie": sessionCookie(token) }), true;
     }
 
@@ -330,14 +339,42 @@ export async function handleSocialRequest(request, response, url) {
       return true;
     }
 
-    const user = await authenticatedUser(request);
+    const user = await authenticatedUser(request, response);
     if (!user) {
       sendJson(response, 401, { error: "Autenticação necessária." });
       return true;
     }
-    if (!allowApiAttempt(request, user, method)) {
+    const isSessionManagementRoute = pathname === "/api/auth/sessions" ||
+      pathname === "/api/auth/sessions/revoke-others" || /^\/api\/auth\/sessions\/[^/]+$/.test(pathname);
+    const allowedAttempt = isSessionManagementRoute && method !== "GET"
+      ? allowAuthAttempt(request, `sessions:${user.id}`)
+      : allowApiAttempt(request, user, method);
+    if (!allowedAttempt) {
       sendJson(response, 429, { error: "Muitas requisições. Aguarde um minuto e tente novamente." }, { "Retry-After": "60" });
       return true;
+    }
+
+    if (pathname === "/api/auth/sessions" && method === "GET") {
+      const token = readCookie(request, SESSION_COOKIE);
+      return sendJson(response, 200, { sessions: await listUserSessions(user.id, token) }), true;
+    }
+
+    if (pathname === "/api/auth/sessions/revoke-others" && method === "POST") {
+      const token = readCookie(request, SESSION_COOKIE);
+      const revokedCount = await revokeOtherUserSessions(user.id, token);
+      return sendJson(response, 200, { revokedCount }), true;
+    }
+
+    const sessionMatch = pathname.match(/^\/api\/auth\/sessions\/([^/]+)$/);
+    if (sessionMatch && method === "DELETE") {
+      const sessionId = sessionMatch[1];
+      if (!UUID_PATTERN.test(sessionId)) throw invalid("Sessão inválida.");
+      const revoked = await revokeUserSession(user.id, sessionId, readCookie(request, SESSION_COOKIE));
+      if (!revoked) {
+        sendJson(response, 404, { error: "Sessão não encontrada ou não pode ser encerrada daqui." });
+        return true;
+      }
+      return sendJson(response, 200, { ok: true }), true;
     }
 
     if (pathname === "/api/profile" && method === "PATCH") {

@@ -32,7 +32,7 @@ Landing Page de validação (Smoke Test + Protótipo Interativo) para a rede soc
 - PostgreSQL
 - Tailwind CSS v4 + shadcn/ui
 - Lucide Icons
-- Cadastro por link de e-mail, senhas derivadas por scrypt e sessões próprias com cookie `HttpOnly`
+- Cadastro por link de e-mail, senhas derivadas por scrypt e sessões próprias com cookie `HttpOnly`; sessões renovam até 30 dias de inatividade e expiram no máximo 90 dias após o login
 
 ## Como executar com Docker
 
@@ -67,7 +67,7 @@ Para produção, crie um token S3 em **Cloudflare Dashboard → R2 → Manage R2
 
 ## Feed e API social
 
-- `GET /api/auth/me`, `POST /api/auth/register` (solicita link por e-mail), `POST /api/auth/register/complete` (cria a conta e inicia a sessão), `POST /api/auth/password-reset` (solicita redefinição de senha por e-mail), `POST /api/auth/password-reset/complete` (altera a senha e inicia uma nova sessão), `POST /api/auth/login`, `POST /api/auth/logout`
+- `GET /api/auth/me`, `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:id`, `POST /api/auth/sessions/revoke-others`, `POST /api/auth/register` (solicita link por e-mail), `POST /api/auth/register/complete` (cria a conta e inicia a sessão), `POST /api/auth/password-reset` (solicita redefinição de senha por e-mail), `POST /api/auth/password-reset/complete` (altera a senha e inicia uma nova sessão), `POST /api/auth/login`, `POST /api/auth/logout`
 - `GET /api/feed?tribeId=<uuid>&cursor=<cursor>&limit=20` — timeline cronológica paginada por cursor; o filtro de tribo é validado pela associação ativa do usuário.
 - `GET /api/tribes?q=<busca>&mine=true` e `POST /api/tribes`; `POST /api/tribes/:id/join` e `DELETE /api/tribes/:id/membership`
 - `POST /api/tribes/:id/posts` e `POST /api/tribes/:id/events`

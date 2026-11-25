@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { digestSessionToken } from "./security.mjs";
 import { getObjectStorage } from "./object-storage.mjs";
+import { SESSION_MAX_AGE_SECONDS, SESSION_RENEW_THRESHOLD_SECONDS } from "./session-policy.mjs";
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -397,20 +398,76 @@ export async function getSessionUser(token) {
             EXISTS (SELECT 1 FROM user_profile_images i WHERE i.user_id = u.id AND i.is_deleted = FALSE) AS has_avatar
      FROM user_sessions s
      JOIN users u ON u.id = s.user_id
-     WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP`,
-    [digestSessionToken(token)]
+     WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP
+       AND s.created_at + ($2 * INTERVAL '1 second') > CURRENT_TIMESTAMP`,
+    [digestSessionToken(token), SESSION_MAX_AGE_SECONDS]
   );
   if (!rows[0]) return null;
   try {
-    await pool.query(
-      `UPDATE users SET last_seen_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < CURRENT_TIMESTAMP - INTERVAL '5 minutes')`,
-      [rows[0].id]
-    );
+    await Promise.all([
+      pool.query(
+        `UPDATE users SET last_seen_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND (last_seen_at IS NULL OR last_seen_at < CURRENT_TIMESTAMP - INTERVAL '5 minutes')`,
+        [rows[0].id]
+      ),
+      pool.query(
+        `UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP
+         WHERE token_hash = $1 AND last_seen_at < CURRENT_TIMESTAMP - INTERVAL '5 minutes'`,
+        [digestSessionToken(token)]
+      ),
+    ]);
   } catch (error) {
-    console.error("Falha ao atualizar atividade da conta:", error);
+    console.error("Falha ao atualizar atividade da sessão:", error);
   }
   return toUser(rows[0]);
+}
+
+export async function renewSession(token, idleTtlSeconds) {
+  if (!token) return null;
+  const { rows } = await pool.query(
+    `UPDATE user_sessions
+     SET expires_at = LEAST(
+       CURRENT_TIMESTAMP + ($2 * INTERVAL '1 second'),
+       created_at + ($3 * INTERVAL '1 second')
+     )
+     WHERE token_hash = $1
+       AND expires_at > CURRENT_TIMESTAMP
+       AND created_at + ($3 * INTERVAL '1 second') > CURRENT_TIMESTAMP
+       AND expires_at < created_at + ($3 * INTERVAL '1 second')
+       AND expires_at < CURRENT_TIMESTAMP + ($4 * INTERVAL '1 second')
+     RETURNING GREATEST(1, CEIL(EXTRACT(EPOCH FROM (expires_at - CURRENT_TIMESTAMP))))::int AS ttl_seconds`,
+    [digestSessionToken(token), idleTtlSeconds, SESSION_MAX_AGE_SECONDS, SESSION_RENEW_THRESHOLD_SECONDS]
+  );
+  return rows[0]?.ttl_seconds ?? null;
+}
+
+export async function listUserSessions(userId, currentToken) {
+  const { rows } = await pool.query(
+    `SELECT id, created_at, last_seen_at, expires_at, token_hash = $2 AS is_current
+     FROM user_sessions
+     WHERE user_id = $1 AND expires_at > CURRENT_TIMESTAMP
+       AND created_at + ($3 * INTERVAL '1 second') > CURRENT_TIMESTAMP
+     ORDER BY (token_hash = $2) DESC, last_seen_at DESC`,
+    [userId, digestSessionToken(currentToken), SESSION_MAX_AGE_SECONDS]
+  );
+  return rows;
+}
+
+export async function revokeUserSession(userId, sessionId, currentToken) {
+  const { rowCount } = await pool.query(
+    `DELETE FROM user_sessions
+     WHERE user_id = $1 AND id = $2 AND token_hash <> $3`,
+    [userId, sessionId, digestSessionToken(currentToken)]
+  );
+  return rowCount > 0;
+}
+
+export async function revokeOtherUserSessions(userId, currentToken) {
+  const { rowCount } = await pool.query(
+    "DELETE FROM user_sessions WHERE user_id = $1 AND token_hash <> $2",
+    [userId, digestSessionToken(currentToken)]
+  );
+  return rowCount;
 }
 
 export async function deleteSession(token) {

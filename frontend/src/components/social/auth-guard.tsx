@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { SocialHeader } from "@/components/social/social-header";
+import { Button } from "@/components/ui/button";
 
 const MOBILE_NAVIGATION_PATHS = ["/feed", "/tribos", "/minhas-tribos", "/mensagens", "/eventos", "/perfil"];
 
@@ -51,6 +52,8 @@ export function AuthLoadingState() {
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [authError, setAuthError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const pathname = usePathname();
   const router = useRouter();
   const touchStart = useRef<{ x: number; y: number; startedAt: number } | null>(null);
@@ -103,11 +106,17 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     let active = true;
     fetch("/api/auth/me", { cache: "no-store" })
       .then(async (response) => {
-        if (!response.ok) throw new Error("not-authenticated");
+        if (response.status === 401) {
+          if (active) router.replace(`/entrar?next=${encodeURIComponent(pathname)}`);
+          return null;
+        }
+        if (!response.ok) throw new Error("session-check-failed");
         return response.json() as Promise<{ user: CurrentUser | null }>;
       })
-      .then(({ user: authenticatedUser }) => {
+      .then((result) => {
         if (!active) return;
+        if (!result) return;
+        const { user: authenticatedUser } = result;
         if (!authenticatedUser) {
           router.replace(`/entrar?next=${encodeURIComponent(pathname)}`);
           return;
@@ -116,10 +125,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
         setLoaded(true);
       })
       .catch(() => {
-        if (active) router.replace(`/entrar?next=${encodeURIComponent(pathname)}`);
+        if (active) setAuthError(true);
       });
     return () => { active = false; };
-  }, [pathname, router]);
+  }, [pathname, retryCount, router]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -140,7 +149,15 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
           {children}
         </CurrentUserContext.Provider>
       </div>
-      {(!loaded || !user) && <AuthLoadingState />}
+      {!loaded && authError && !user && (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+          <p role="alert" className="max-w-md text-sm text-muted-foreground">
+            Não foi possível confirmar sua sessão agora. Confira sua conexão e tente novamente.
+          </p>
+          <Button type="button" onClick={() => { setAuthError(false); setRetryCount((count) => count + 1); }}>Tentar novamente</Button>
+        </div>
+      )}
+      {(!loaded || !user) && !(authError && !user) && <AuthLoadingState />}
     </div>
   );
 }

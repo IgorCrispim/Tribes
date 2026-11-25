@@ -222,6 +222,60 @@ integrationTest("authenticated social feed, event attendance, likes, comments an
   })).response.status, 401);
   alice.cookie = resetCookie;
 
+  await pool.query("UPDATE user_sessions SET expires_at = CURRENT_TIMESTAMP + INTERVAL '6 days' WHERE user_id = $1", [alice.user.id]);
+  const renewedSessionResponse = await call(alice, "/api/auth/me");
+  assert.equal(renewedSessionResponse.response.status, 200);
+  assert.match(renewedSessionResponse.response.headers.get("set-cookie") ?? "", /Max-Age=2592000/);
+  const renewedExpiry = await pool.query("SELECT expires_at > CURRENT_TIMESTAMP + INTERVAL '29 days' AS renewed FROM user_sessions WHERE user_id = $1", [alice.user.id]);
+  assert.equal(renewedExpiry.rows[0].renewed, true);
+
+  const secondLogin = await call(null, "/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: alice.user.email, password: "New-integration-test-password" }),
+  });
+  assert.equal(secondLogin.response.status, 200);
+  const secondSession = { cookie: secondLogin.response.headers.get("set-cookie")?.split(";")[0], user: alice.user };
+  assert.ok(secondSession.cookie);
+  const listedSessions = await call(alice, "/api/auth/sessions");
+  assert.equal(listedSessions.response.status, 200);
+  assert.equal(listedSessions.data.sessions.length, 2);
+  const secondSessionInfo = listedSessions.data.sessions.find((session) => !session.is_current);
+  assert.ok(secondSessionInfo);
+
+  await pool.query(
+    `UPDATE user_sessions
+     SET created_at = CURRENT_TIMESTAMP - INTERVAL '84 days',
+         expires_at = CURRENT_TIMESTAMP + INTERVAL '1 day'
+     WHERE id = $1`,
+    [secondSessionInfo.id]
+  );
+  const cappedRenewal = await call(secondSession, "/api/auth/me");
+  assert.equal(cappedRenewal.data.user.id, alice.user.id);
+  const cappedCookie = cappedRenewal.response.headers.get("set-cookie") ?? "";
+  const cappedMaxAge = Number(cappedCookie.match(/Max-Age=(\d+)/)?.[1]);
+  assert.ok(cappedMaxAge > 0 && cappedMaxAge <= 6 * 24 * 60 * 60, `Max-Age inesperado: ${cappedCookie}`);
+
+  await pool.query(
+    `UPDATE user_sessions
+     SET created_at = CURRENT_TIMESTAMP - INTERVAL '91 days',
+         expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days'
+     WHERE id = $1`,
+    [secondSessionInfo.id]
+  );
+  assert.equal((await call(secondSession, "/api/auth/me")).data.user, null);
+  assert.equal((await call(alice, `/api/auth/sessions/${secondSessionInfo.id}`, { method: "DELETE" })).response.status, 200);
+
+  const thirdLogin = await call(null, "/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: alice.user.email, password: "New-integration-test-password" }),
+  });
+  const thirdSession = { cookie: thirdLogin.response.headers.get("set-cookie")?.split(";")[0], user: alice.user };
+  assert.ok(thirdSession.cookie);
+  const revokeOthers = await call(alice, "/api/auth/sessions/revoke-others", { method: "POST" });
+  assert.equal(revokeOthers.response.status, 200);
+  assert.equal(revokeOthers.data.revokedCount, 1);
+  assert.equal((await call(thirdSession, "/api/auth/me")).data.user, null);
+
   const reusedToken = await call(null, "/api/auth/register/complete", {
     method: "POST",
     body: JSON.stringify({ name: "Tester alice", token: alice.token, password: "Another-valid-password" }),

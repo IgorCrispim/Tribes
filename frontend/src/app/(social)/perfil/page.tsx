@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Camera, Check, LoaderCircle, LogOut, MapPin, Plus, Save, Trash2, UserRound, X } from "lucide-react";
 import { useCurrentUser, type CurrentUser } from "@/components/social/auth-guard";
 import { UserAvatar } from "@/components/social/user-avatar";
+import { SessionManager } from "@/components/social/session-manager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -248,6 +249,7 @@ export default function ProfileSettingsPage() {
           </Button>
         </div>
       </form>
+      <SessionManager />
     </main>
   );
 }

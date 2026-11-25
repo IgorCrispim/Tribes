@@ -1,0 +1,3 @@
+export const SESSION_IDLE_TTL_SECONDS = 60 * 60 * 24 * 30;
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
+export const SESSION_RENEW_THRESHOLD_SECONDS = 60 * 60 * 24 * 7;
