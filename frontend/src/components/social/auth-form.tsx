@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { trackMvpEvent } from "@/lib/mvp-tracker";
@@ -82,7 +83,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           </div>
           {!registering && <div className="space-y-1.5">
             <Label htmlFor="password">Senha</Label>
-            <Input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={1} maxLength={128} autoComplete="current-password" required />
+            <PasswordInput id="password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={1} maxLength={128} autoComplete="current-password" required />
             <div className="text-right">
               <Link href="/esqueci-senha" className="text-sm font-semibold text-primary hover:underline">
                 Esqueci minha senha
