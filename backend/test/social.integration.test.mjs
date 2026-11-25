@@ -465,6 +465,69 @@ integrationTest("authenticated social feed, event attendance, likes, comments an
   const tribeTwo = await createTribe(alice, "two");
   const outsiderTribe = await createTribe(bob, "private-to-bob");
 
+  const handoffTribe = await createTribe(alice, "moderator-handoff");
+  assert.equal((await call(bob, `/api/tribes/${handoffTribe.id}/join`, { method: "POST" })).response.status, 200);
+  assert.equal((await call(empty, `/api/tribes/${handoffTribe.id}/join`, { method: "POST" })).response.status, 200);
+  await pool.query(
+    `UPDATE tribe_memberships
+     SET joined_at = CASE user_id WHEN $2 THEN $4::timestamptz ELSE $5::timestamptz END
+     WHERE tribe_id = $1 AND user_id = ANY($3::uuid[])`,
+    [handoffTribe.id, bob.user.id, [bob.user.id, empty.user.id], "2020-01-01T00:00:00Z", "2021-01-01T00:00:00Z"]
+  );
+  const handoff = await call(alice, `/api/tribes/${handoffTribe.id}/membership`, { method: "DELETE" });
+  assert.equal(handoff.response.status, 200, JSON.stringify(handoff.data));
+  assert.deepEqual(handoff.data, { isMember: false, tribeDeleted: false, moderatorId: bob.user.id });
+  const moderatorState = await pool.query(
+    `SELECT t.created_by, t.moderator_id, m.status
+     FROM tribes t JOIN tribe_memberships m ON m.tribe_id = t.id AND m.user_id = $2
+     WHERE t.id = $1`,
+    [handoffTribe.id, alice.user.id]
+  );
+  assert.equal(moderatorState.rows[0].created_by, alice.user.id);
+  assert.equal(moderatorState.rows[0].moderator_id, bob.user.id);
+  assert.equal(moderatorState.rows[0].status, "left");
+  const bobEdit = await call(bob, `/api/tribes/${handoffTribe.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: handoffTribe.name,
+      description: "Atualizada pelo novo moderador.",
+      category: handoffTribe.category,
+      format: handoffTribe.format,
+      city: handoffTribe.city,
+      neighborhood: handoffTribe.neighborhood,
+    }),
+  });
+  assert.equal(bobEdit.response.status, 200, JSON.stringify(bobEdit.data));
+  assert.equal((await call(alice, `/api/tribes/${handoffTribe.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: handoffTribe.name,
+      description: handoffTribe.description,
+      category: handoffTribe.category,
+      format: handoffTribe.format,
+      city: handoffTribe.city,
+      neighborhood: handoffTribe.neighborhood,
+    }),
+  })).response.status, 404);
+  const bobManagedTribes = await call(bob, "/api/tribes?managed=true");
+  assert.equal(bobManagedTribes.response.status, 200);
+  assert.equal(bobManagedTribes.data.tribes.find((tribe) => tribe.id === handoffTribe.id)?.isModerator, true);
+  const transferredMembers = await call(bob, `/api/tribes/${handoffTribe.id}/members`);
+  assert.equal(transferredMembers.data.members.find((member) => member.id === bob.user.id)?.isModerator, true);
+
+  const lastMemberTribe = await createTribe(alice, "last-member-deletion");
+  const autoDeletePostId = await createPost(alice, lastMemberTribe, "Conteúdo removido junto com a tribo.", profileImage);
+  const autoDeleteImage = await pool.query("SELECT image_key FROM content_images WHERE content_id = $1", [autoDeletePostId]);
+  assert.ok(autoDeleteImage.rows[0].image_key);
+  const lastMemberExit = await call(alice, `/api/tribes/${lastMemberTribe.id}/membership`, { method: "DELETE" });
+  assert.equal(lastMemberExit.response.status, 200, JSON.stringify(lastMemberExit.data));
+  assert.deepEqual(lastMemberExit.data, { isMember: false, tribeDeleted: true });
+  assert.equal((await pool.query("SELECT 1 FROM tribes WHERE id = $1", [lastMemberTribe.id])).rowCount, 0);
+  assert.equal((await pool.query("SELECT 1 FROM tribe_memberships WHERE tribe_id = $1", [lastMemberTribe.id])).rowCount, 0);
+  assert.equal((await pool.query("SELECT 1 FROM feed_items WHERE id = $1", [autoDeletePostId])).rowCount, 0);
+  assert.equal((await call(null, `/api/tribes/${lastMemberTribe.id}`)).response.status, 404);
+  await assert.rejects(getObjectStorage().getObject(autoDeleteImage.rows[0].image_key));
+
   const tribeToDelete = await createTribe(alice, "for-deletion");
   const deletionPostId = await createPost(
     alice,

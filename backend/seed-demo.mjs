@@ -192,8 +192,8 @@ try {
 
     if (matchingTribes.length === 0) {
       matchingTribes = (await client.query(
-        `INSERT INTO tribes (name, description, category, format, city, neighborhood, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO tribes (name, description, category, format, city, neighborhood, created_by, moderator_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
          RETURNING id`,
         [tribe.name, tribe.description, tribe.category, tribe.format, tribe.city, tribe.neighborhood, creatorId]
       )).rows;

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { apiRequest, type Tribe } from "@/lib/social-types";
 
-type MyTribe = Tribe & { isOwner?: boolean };
+type MyTribe = Tribe;
 
 export default function MyTribesPage() {
   const [tribes, setTribes] = useState<MyTribe[]>([]);
@@ -34,8 +34,8 @@ export default function MyTribesPage() {
   }, []);
 
   const filteredTribes = tribes.filter((tribe) => {
-    if (filter === "moderator") return tribe.isOwner === true;
-    if (filter === "participant") return tribe.isOwner !== true;
+    if (filter === "moderator") return tribe.isModerator === true;
+    if (filter === "participant") return tribe.isModerator !== true;
     return true;
   });
 
@@ -74,7 +74,7 @@ export default function MyTribesPage() {
               <article key={tribe.id} className="flex flex-col rounded-3xl border border-border bg-card p-5 shadow-xs">
                 <div className="flex items-center justify-between gap-2">
                   <Badge variant="secondary">{tribe.category}</Badge>
-                  <Badge variant="outline">{tribe.isOwner ? "Moderador" : "Participante"}</Badge>
+                  <Badge variant="outline">{tribe.isModerator ? "Moderador" : "Participante"}</Badge>
                 </div>
                 <h2 className="mt-4 font-heading text-lg font-bold">{tribe.name}</h2>
                 <p className="mt-2 line-clamp-3 flex-1 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{tribe.description}</p>

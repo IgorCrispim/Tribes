@@ -29,7 +29,7 @@ services:
       PORT: 4000
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.production}
       FRONTEND_URL: ${FRONTEND_URL:?Set FRONTEND_URL to the public HTTPS origin}
-      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-}
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-https://www.tribeyourself.com.br,https://tribeyourself.com.br}
       MAPS_API: ${MAPS_API:-}
       EMAIL_PROVIDER: resend
       RESEND_API_KEY: ${RESEND_API_KEY:?Set RESEND_API_KEY}

@@ -761,13 +761,16 @@ export async function handleSocialRequest(request, response, url) {
     if (membershipMatch && ["POST", "DELETE"].includes(method)) {
       const tribeId = requireUuid(membershipMatch[1], "Tribo");
       const joined = method === "POST";
-      const success = joined ? await joinTribe(user.id, tribeId) : await leaveTribe(user.id, tribeId);
+      const result = joined ? await joinTribe(user.id, tribeId) : await leaveTribe(user.id, tribeId);
+      const success = joined ? result : true;
       if (!success && joined) {
         const error = new Error("Tribo não encontrada.");
         error.statusCode = 404;
         throw error;
       }
-      sendJson(response, 200, { isMember: joined });
+      sendJson(response, 200, joined
+        ? { isMember: true }
+        : { isMember: false, tribeDeleted: result.tribeDeleted });
       return true;
     }
 

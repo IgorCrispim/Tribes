@@ -16,6 +16,7 @@ export default function TribesPage() {
   const [loading, setLoading] = useState(true);
   const [workingTribe, setWorkingTribe] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const cities = useMemo(() => [...new Set(tribes.map((tribe) => tribe.city).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR")), [tribes]);
   const interests = useMemo(() => [...new Set(tribes.map((tribe) => tribe.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR")), [tribes]);
   const sortedTribes = useMemo(() => tribes
@@ -40,9 +41,15 @@ export default function TribesPage() {
   async function toggleMembership(tribe: Tribe) {
     setWorkingTribe(tribe.id);
     setError("");
+    setMessage("");
     try {
       const joined = !tribe.isMember;
-      await apiRequest(`/api/tribes/${tribe.id}/${joined ? "join" : "membership"}`, { method: joined ? "POST" : "DELETE" });
+      const result = await apiRequest<{ isMember: boolean; tribeDeleted?: boolean }>(`/api/tribes/${tribe.id}/${joined ? "join" : "membership"}`, { method: joined ? "POST" : "DELETE" });
+      if (result.tribeDeleted) {
+        setTribes((current) => current.filter((entry) => entry.id !== tribe.id));
+        setMessage("Você era o único membro. A tribo foi excluída automaticamente.");
+        return;
+      }
       setTribes((current) => current.map((entry) => entry.id === tribe.id ? {
         ...entry,
         isMember: joined,
@@ -87,6 +94,7 @@ export default function TribesPage() {
         </div>
       </section>
       {error && <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</p>}
+      {message && <p role="status" className="rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-sm text-primary">{message}</p>}
       {loading ? <div className="flex justify-center py-14"><LoaderCircle className="size-6 animate-spin text-primary" /></div> : sortedTribes.length ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {sortedTribes.map((tribe) => <article key={tribe.id} className="flex flex-col rounded-3xl border border-border bg-card p-5 shadow-xs">

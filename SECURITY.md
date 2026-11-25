@@ -6,11 +6,11 @@ O `compose.yaml` continua sendo o ambiente local de desenvolvimento. Ele não de
 
 1. Copie `.env.production.example` para `.env.production`.
 2. Substitua todos os valores de exemplo por credenciais fortes e reais.
-3. Configure um domínio HTTPS e defina `FRONTEND_URL` com a origem principal exata (protocolo + domínio + porta, sem caminho).
-4. Se o frontend também responder por outros domínios (por exemplo, com e sem `www`), informe todas as origens adicionais em `FRONTEND_ORIGINS`, separadas por vírgula. Não use caminhos nem curingas.
-4. Configure uma chave de API do Resend e um bucket privado no Cloudflare R2.
-5. Garanta que o proxy HTTPS termine TLS e encaminhe o tráfego para `127.0.0.1:4317`.
-6. Execute:
+3. Defina `FRONTEND_URL` com a origem HTTPS principal exata (protocolo + domínio + porta, sem caminho). O Compose de produção já permite `www.tribeyourself.com.br` e `tribeyourself.com.br` por padrão.
+4. Se o frontend também responder por outros domínios, informe as origens adicionais em `FRONTEND_ORIGINS`, separadas por vírgula. Não use caminhos nem curingas.
+5. Configure uma chave de API do Resend e um bucket privado no Cloudflare R2.
+6. Garanta que o proxy HTTPS termine TLS e encaminhe o tráfego para `127.0.0.1:4317`.
+7. Execute:
 
 ```bash
 docker compose --env-file .env.production -f compose.production.yaml up -d --build

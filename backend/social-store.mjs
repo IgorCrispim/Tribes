@@ -613,7 +613,7 @@ export async function getUserProfileImage(userId) {
 export async function searchTribes(userId, { query = "", mine = false, managed = false, limit = 40 }) {
   const { rows } = await pool.query(
     `SELECT t.id, t.name, t.description, t.category, t.format, t.city, t.neighborhood,
-            t.created_at, (t.created_by = $1) AS is_owner,
+            t.created_at, (t.moderator_id = $1) AS is_moderator,
             COUNT(DISTINCT m.user_id)::int AS member_count,
             COALESCE(bool_or(m.user_id = $1 AND m.status = 'active'), false) AS is_member
      FROM tribes t
@@ -624,7 +624,7 @@ export async function searchTribes(userId, { query = "", mine = false, managed =
      ))
        AND ($3 = '' OR t.name ILIKE $4 OR t.description ILIKE $4 OR t.category ILIKE $4
             OR t.city ILIKE $4 OR t.neighborhood ILIKE $4)
-       AND ($6::boolean = false OR t.created_by = $1)
+       AND ($6::boolean = false OR t.moderator_id = $1)
      GROUP BY t.id
      ORDER BY t.created_at DESC, t.id DESC
      LIMIT $5`,
@@ -641,7 +641,7 @@ export async function searchTribes(userId, { query = "", mine = false, managed =
     createdAt: row.created_at,
     memberCount: row.member_count,
     isMember: row.is_member,
-    isOwner: row.is_owner,
+    isModerator: row.is_moderator,
   }));
 }
 
@@ -670,8 +670,8 @@ export async function createTribe(userId, tribe) {
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
-      `INSERT INTO tribes (name, description, category, format, city, neighborhood, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO tribes (name, description, category, format, city, neighborhood, created_by, moderator_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
        RETURNING id, name, description, category, format, city, neighborhood, created_at`,
       [tribe.name, tribe.description, tribe.category, tribe.format, tribe.city, tribe.neighborhood, userId]
     );
@@ -693,7 +693,7 @@ export async function updateTribe(userId, tribeId, tribe) {
   const { rows } = await pool.query(
     `UPDATE tribes
      SET name = $3, description = $4, category = $5, format = $6, city = $7, neighborhood = $8
-     WHERE id = $1 AND created_by = $2
+     WHERE id = $1 AND moderator_id = $2
      RETURNING id, name, description, category, format, city, neighborhood, created_at`,
     [tribeId, userId, tribe.name, tribe.description, tribe.category, tribe.format, tribe.city, tribe.neighborhood]
   );
@@ -706,7 +706,7 @@ export async function deleteTribe(userId, tribeId, confirmationName) {
   try {
     await client.query("BEGIN");
     const { rows: tribes } = await client.query(
-      "SELECT name FROM tribes WHERE id = $1 AND created_by = $2 FOR UPDATE",
+      "SELECT name FROM tribes WHERE id = $1 AND moderator_id = $2 FOR UPDATE",
       [tribeId, userId]
     );
     if (!tribes.length) {
@@ -724,7 +724,7 @@ export async function deleteTribe(userId, tribeId, confirmationName) {
       [tribeId]
     );
     imageKeys = images.map((image) => image.image_key);
-    await client.query("DELETE FROM tribes WHERE id = $1 AND created_by = $2", [tribeId, userId]);
+    await client.query("DELETE FROM tribes WHERE id = $1 AND moderator_id = $2", [tribeId, userId]);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -749,12 +749,82 @@ export async function joinTribe(userId, tribeId) {
 }
 
 export async function leaveTribe(userId, tribeId) {
-  const { rowCount } = await pool.query(
-    `UPDATE tribe_memberships SET status = 'left', left_at = CURRENT_TIMESTAMP
-     WHERE tribe_id = $1 AND user_id = $2 AND status = 'active'`,
-    [tribeId, userId]
-  );
-  return rowCount > 0;
+  const client = await pool.connect();
+  let imageKeys = [];
+  let result = { tribeDeleted: false };
+  try {
+    await client.query("BEGIN");
+    const { rows: tribes } = await client.query(
+      "SELECT moderator_id FROM tribes WHERE id = $1 FOR UPDATE",
+      [tribeId]
+    );
+    if (!tribes.length) {
+      await client.query("ROLLBACK");
+      return result;
+    }
+
+    const { rows: memberships } = await client.query(
+      `SELECT status FROM tribe_memberships
+       WHERE tribe_id = $1 AND user_id = $2 FOR UPDATE`,
+      [tribeId, userId]
+    );
+    if (memberships[0]?.status !== "active") {
+      await client.query("ROLLBACK");
+      return result;
+    }
+
+    if (tribes[0].moderator_id === userId) {
+      const { rows: successors } = await client.query(
+        `SELECT user_id FROM tribe_memberships
+         WHERE tribe_id = $1 AND status = 'active' AND user_id <> $2
+         ORDER BY joined_at ASC, user_id ASC
+         LIMIT 1`,
+        [tribeId, userId]
+      );
+
+      if (successors.length === 0) {
+        await client.query(
+          `SELECT user_id FROM tribe_memberships
+           WHERE tribe_id = $1 AND status = 'active' FOR UPDATE`,
+          [tribeId]
+        );
+        const { rows: images } = await client.query(
+          `SELECT i.image_key FROM content_images i
+           JOIN feed_items f ON f.id = i.content_id
+           WHERE f.tribe_id = $1 AND i.image_key IS NOT NULL`,
+          [tribeId]
+        );
+        imageKeys = images.map((image) => image.image_key);
+        await client.query("DELETE FROM tribes WHERE id = $1", [tribeId]);
+        result = { tribeDeleted: true };
+      } else {
+        await client.query(
+          "UPDATE tribes SET moderator_id = $2 WHERE id = $1",
+          [tribeId, successors[0].user_id]
+        );
+        await client.query(
+          `UPDATE tribe_memberships SET status = 'left', left_at = CURRENT_TIMESTAMP
+           WHERE tribe_id = $1 AND user_id = $2 AND status = 'active'`,
+          [tribeId, userId]
+        );
+        result = { tribeDeleted: false, moderatorId: successors[0].user_id };
+      }
+    } else {
+      await client.query(
+        `UPDATE tribe_memberships SET status = 'left', left_at = CURRENT_TIMESTAMP
+         WHERE tribe_id = $1 AND user_id = $2 AND status = 'active'`,
+        [tribeId, userId]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+  await Promise.all(imageKeys.map(removeObjectBestEffort));
+  return result;
 }
 
 export async function userBelongsToTribe(userId, tribeId) {
@@ -1427,20 +1497,20 @@ export async function listTribeMembers(userId, tribeId) {
               THEN u.interests ELSE '[]'::jsonb END AS interests,
             m.joined_at,
             EXISTS (SELECT 1 FROM user_profile_images i WHERE i.user_id = u.id AND i.is_deleted = FALSE) AS has_avatar,
-            (t.created_by = u.id) AS is_owner
+            (t.moderator_id = u.id) AS is_moderator
      FROM tribe_memberships m
      JOIN users u ON u.id = m.user_id
      JOIN tribes t ON t.id = m.tribe_id
      WHERE m.tribe_id = $2 AND m.status = 'active'
        AND EXISTS (SELECT 1 FROM tribe_memberships viewer_membership WHERE viewer_membership.tribe_id = $2 AND viewer_membership.user_id = $1 AND viewer_membership.status = 'active')
-     ORDER BY (t.created_by = u.id) DESC, u.display_name ASC
+      ORDER BY (t.moderator_id = u.id) DESC, u.display_name ASC
      LIMIT 200`,
     [userId, tribeId]
   );
   if (rows.length === 0 && !(await userBelongsToTribe(userId, tribeId))) return null;
   return rows.map((row) => ({
     id: row.id, name: row.display_name, aboutMe: row.about_me ?? "", city: row.city ?? "", interests: Array.isArray(row.interests) ? row.interests : [],
-    joinedAt: row.joined_at, isOwner: row.is_owner,
+    joinedAt: row.joined_at, isModerator: row.is_moderator,
     avatarUrl: row.has_avatar ? `/api/users/${row.id}/avatar` : null,
   }));
 }

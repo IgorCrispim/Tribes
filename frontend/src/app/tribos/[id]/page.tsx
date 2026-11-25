@@ -18,7 +18,7 @@ type TribeMember = {
   aboutMe: string;
   city: string;
   interests: string[];
-  isOwner: boolean;
+  isModerator: boolean;
   avatarUrl: string | null;
 };
 
@@ -27,7 +27,7 @@ function TribeDetailContent() {
   const [tribe, setTribe] = useState<Tribe | null>(null);
   const [sampleTribe, setSampleTribe] = useState<TribePreview | null>(null);
   const [members, setMembers] = useState<TribeMember[]>([]);
-  const [isOwner, setIsOwner] = useState(false);
+  const [isModerator, setIsModerator] = useState(false);
   const [isMember, setIsMember] = useState(false);
   const [membersExpanded, setMembersExpanded] = useState(false);
   const [membersLoaded, setMembersLoaded] = useState(false);
@@ -69,12 +69,12 @@ function TribeDetailContent() {
       if (!active) return;
       setTribe(current);
       const tribeResult = await Promise.allSettled([
-        apiRequest<{ tribes: (Tribe & { isOwner?: boolean })[] }>("/api/tribes?mine=true"),
+        apiRequest<{ tribes: Tribe[] }>("/api/tribes?mine=true"),
       ]);
       if (!active) return;
       if (tribeResult[0].status === "fulfilled") {
         const membership = tribeResult[0].value.tribes.find((item) => item.id === id);
-        setIsOwner(membership?.isOwner === true);
+        setIsModerator(membership?.isModerator === true);
         setIsMember(membership?.isMember === true);
       }
     }).catch((loadError) => {
@@ -127,7 +127,7 @@ function TribeDetailContent() {
                 {sampleTribe && <span>{sampleTribe.weeklyFrequency}</span>}
               </div>
             </div>
-            {isOwner && <Button nativeButton={false} render={<Link href={`/minhas-tribos/${tribe.id}`} />} variant="outline" className="shrink-0"><Pencil className="size-4" />Gerenciar tribo</Button>}
+            {isModerator && <Button nativeButton={false} render={<Link href={`/minhas-tribos/${tribe.id}`} />} variant="outline" className="shrink-0"><Pencil className="size-4" />Gerenciar tribo</Button>}
           </div>
           {!isSampleTribe && <Button nativeButton={false} render={<Link href={`/feed?tribeId=${tribe.id}`} />} className="mt-5 w-full sm:w-auto">Ver publicações e eventos</Button>}
         </section>
@@ -198,7 +198,7 @@ function TribeDetailContent() {
               {!membersLoading && !membersError && members.map((member) => <div key={member.id} className="flex min-w-0 items-center gap-3 py-3">
                 <UserAvatar name={member.name} avatarUrl={member.avatarUrl} />
                 <div className="min-w-0 flex-1"><p className="break-words text-sm font-semibold">{member.name}</p>{member.city && <p className="text-xs text-muted-foreground">{member.city}</p>}</div>
-                {member.isOwner && <Badge variant="secondary">Criador</Badge>}
+                {member.isModerator && <Badge variant="secondary">Moderador</Badge>}
               </div>)}
               {!membersLoading && !membersError && membersLoaded && !members.length && <p className="py-6 text-sm text-muted-foreground">Ainda não há membros para exibir.</p>}
               {!membersLoading && members.length > 0 && tribe.memberCount > members.length && <p className="py-3 text-xs text-muted-foreground">Exibindo os primeiros {members.length} membros.</p>}

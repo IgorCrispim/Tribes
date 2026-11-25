@@ -38,7 +38,7 @@ export default function EditMyTribePage() {
     apiRequest<{ tribes: Tribe[] }>("/api/tribes?managed=true")
       .then(({ tribes }) => {
         if (!active) return;
-        const current = tribes.find((item) => item.id === id);
+        const current = tribes.find((item) => item.id === id && item.isModerator);
         if (!current) {
           setError("Esta tribo não existe ou você não tem permissão para editá-la.");
           return;

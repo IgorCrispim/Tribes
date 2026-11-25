@@ -13,7 +13,7 @@ type Member = {
   city: string;
   interests: string[];
   joinedAt: string;
-  isOwner: boolean;
+  isModerator: boolean;
   avatarUrl: string | null;
 };
 
@@ -103,7 +103,7 @@ export default function MembersPage() {
                 <Link key={member.id} href={`/usuarios/${member.id}`} className="flex items-center gap-3 p-4 transition-colors hover:bg-muted/50">
                   <UserAvatar name={member.name} avatarUrl={member.avatarUrl} />
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2 text-sm font-semibold">{member.name}{member.isOwner && <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary"><Crown className="size-3" />Criador</span>}</span>
+                    <span className="flex items-center gap-2 text-sm font-semibold">{member.name}{member.isModerator && <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary"><Crown className="size-3" />Moderador</span>}</span>
                     <span className="mt-1 block truncate text-xs text-muted-foreground">{member.aboutMe || (member.city ? <><MapPin className="mr-1 inline size-3" />{member.city}</> : "Ver perfil")}</span>
                     {member.interests.length > 0 && <span className="mt-2 flex flex-wrap gap-1.5">{member.interests.slice(0, 3).map((interest) => <span key={interest} className="rounded-full bg-primary/8 px-2 py-0.5 text-[10px] font-medium text-primary">{interest}</span>)}</span>}
                   </span>
