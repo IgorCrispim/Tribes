@@ -121,9 +121,9 @@ export default function ProfileSettingsPage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl space-y-6">
+    <main className="mx-auto w-full min-w-0 max-w-3xl space-y-6">
       <header className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="flex items-center gap-2 text-sm font-semibold text-primary"><UserRound className="size-4" />Sua conta</p>
           <h1 className="mt-2 font-heading text-3xl font-extrabold">Editar perfil</h1>
           <p className="mt-1 text-sm text-muted-foreground">Personalize seu espaço e mostre à comunidade o que você curte.</p>
@@ -133,7 +133,7 @@ export default function ProfileSettingsPage() {
         </Button>
       </header>
 
-      <form onSubmit={(event) => void saveProfile(event)} className="space-y-7 rounded-3xl border border-border bg-card p-5 shadow-xs sm:p-8">
+      <form onSubmit={(event) => void saveProfile(event)} className="min-w-0 space-y-7 rounded-3xl border border-border bg-card p-5 shadow-xs sm:p-8">
         <section className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
           <div className="relative">
             {previewUrl ? (
@@ -194,7 +194,7 @@ export default function ProfileSettingsPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {interests.map((interest) => (
-              <span key={interest} className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/8 px-3 py-1.5 text-sm font-medium text-primary">
+              <span key={interest} className="inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-full border border-primary/20 bg-primary/8 px-3 py-1.5 text-sm font-medium text-primary [overflow-wrap:anywhere]">
                 {interest}
                 <button type="button" aria-label={`Remover ${interest}`} onClick={() => { setInterests((current) => current.filter((item) => item !== interest)); setSaved(false); }} className="rounded-full hover:bg-primary/10"><X className="size-3.5" /></button>
               </span>
