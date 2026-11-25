@@ -2,8 +2,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { ArrowLeft, Calendar, CheckCircle2, ChevronDown, ChevronUp, LoaderCircle, MapPin, Pencil, Pin, Sparkles, Store, Users } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft, Calendar, CheckCircle2, ChevronDown, ChevronUp, LoaderCircle, LogOut, MapPin, Pencil, Pin, Sparkles, Store, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/social/user-avatar";
@@ -24,6 +24,7 @@ type TribeMember = {
 
 function TribeDetailContent() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [tribe, setTribe] = useState<Tribe | null>(null);
   const [sampleTribe, setSampleTribe] = useState<TribePreview | null>(null);
   const [members, setMembers] = useState<TribeMember[]>([]);
@@ -33,6 +34,8 @@ function TribeDetailContent() {
   const [membersLoaded, setMembersLoaded] = useState(false);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState("");
+  const [membershipWorking, setMembershipWorking] = useState(false);
+  const [membershipError, setMembershipError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -85,6 +88,34 @@ function TribeDetailContent() {
 
   const isSampleTribe = Boolean(sampleTribe);
 
+  async function toggleMembership() {
+    if (!tribe || membershipWorking) return;
+    setMembershipWorking(true);
+    setMembershipError("");
+    try {
+      const joined = !isMember;
+      const result = await apiRequest<{ isMember: boolean; tribeDeleted?: boolean }>(
+        `/api/tribes/${tribe.id}/${joined ? "join" : "membership"}`,
+        { method: joined ? "POST" : "DELETE" },
+      );
+      if (result.tribeDeleted) {
+        router.replace("/tribos");
+        return;
+      }
+      setIsMember(joined);
+      setIsModerator(false);
+      setTribe((current) => current ? {
+        ...current,
+        isMember: joined,
+        memberCount: Math.max(0, current.memberCount + (joined ? 1 : -1)),
+      } : current);
+    } catch (membershipRequestError) {
+      setMembershipError(membershipRequestError instanceof Error ? membershipRequestError.message : "Não foi possível atualizar sua participação.");
+    } finally {
+      setMembershipWorking(false);
+    }
+  }
+
   async function toggleMembers() {
     if (membersExpanded) {
       setMembersExpanded(false);
@@ -111,9 +142,21 @@ function TribeDetailContent() {
     <main className="mx-auto w-full max-w-4xl space-y-6">
       <Link href="/minhas-tribos" className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" />Voltar para Minhas tribos</Link>
       {error || !tribe ? <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">{error || "Tribo não encontrada."}</p> : <>
-        <section className="rounded-3xl border border-border bg-card p-5 sm:p-7">
+        <section className="relative rounded-3xl border border-border bg-card p-5 sm:p-7">
+          {!isSampleTribe && isMember && <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            aria-label="Sair da tribo"
+            title="Sair da tribo"
+            disabled={membershipWorking}
+            onClick={() => void toggleMembership()}
+            className="absolute top-4 right-4 text-destructive hover:bg-destructive/10 hover:text-destructive sm:top-6 sm:right-6"
+          >
+            {membershipWorking ? <LoaderCircle className="size-4 animate-spin" /> : <LogOut className="size-4" />}
+          </Button>}
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1 pr-12 sm:pr-14 md:pr-0">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">{tribe.category}</Badge>
                 {sampleTribe && <Badge variant="outline">{sampleTribe.format}</Badge>}
@@ -127,9 +170,16 @@ function TribeDetailContent() {
                 {sampleTribe && <span>{sampleTribe.weeklyFrequency}</span>}
               </div>
             </div>
-            {isModerator && <Button nativeButton={false} render={<Link href={`/minhas-tribos/${tribe.id}`} />} variant="outline" className="shrink-0"><Pencil className="size-4" />Gerenciar tribo</Button>}
           </div>
-          {!isSampleTribe && <Button nativeButton={false} render={<Link href={`/feed?tribeId=${tribe.id}`} />} className="mt-5 w-full sm:w-auto">Ver publicações e eventos</Button>}
+          {!isSampleTribe && <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Button nativeButton={false} render={<Link href={`/feed?tribeId=${tribe.id}`} />} className="w-full sm:w-auto">Ver publicações e eventos</Button>
+            {!isMember && <Button type="button" disabled={membershipWorking} onClick={() => void toggleMembership()} className="w-full sm:w-auto">
+              {membershipWorking && <LoaderCircle className="size-4 animate-spin" />}
+              Participar da tribo
+            </Button>}
+            {isModerator && <Button nativeButton={false} render={<Link href={`/minhas-tribos/${tribe.id}`} />} variant="outline" className="w-full sm:w-auto"><Pencil className="size-4" />Gerenciar tribo</Button>}
+          </div>}
+          {membershipError && <p role="alert" className="mt-3 text-sm text-destructive">{membershipError}</p>}
         </section>
 
         {sampleTribe && <>

@@ -20,6 +20,7 @@ export default function TribesPage() {
   const cities = useMemo(() => [...new Set(tribes.map((tribe) => tribe.city).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR")), [tribes]);
   const interests = useMemo(() => [...new Set(tribes.map((tribe) => tribe.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR")), [tribes]);
   const sortedTribes = useMemo(() => tribes
+    .filter((tribe) => !tribe.isMember)
     .filter((tribe) => cityFilter === "all" || tribe.city === cityFilter)
     .filter((tribe) => interestFilter === "all" || tribe.category === interestFilter)
     .sort((a, b) => b.memberCount - a.memberCount), [tribes, cityFilter, interestFilter]);
