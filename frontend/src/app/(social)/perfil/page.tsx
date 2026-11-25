@@ -122,10 +122,15 @@ export default function ProfileSettingsPage() {
 
   return (
     <main className="mx-auto max-w-3xl space-y-6">
-      <header>
-        <p className="flex items-center gap-2 text-sm font-semibold text-primary"><UserRound className="size-4" />Sua conta</p>
-        <h1 className="mt-2 font-heading text-3xl font-extrabold">Editar perfil</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Personalize seu espaço e mostre à comunidade o que você curte.</p>
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-2 text-sm font-semibold text-primary"><UserRound className="size-4" />Sua conta</p>
+          <h1 className="mt-2 font-heading text-3xl font-extrabold">Editar perfil</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Personalize seu espaço e mostre à comunidade o que você curte.</p>
+        </div>
+        <Button type="button" variant="ghost" aria-label="Sair da conta" onClick={() => void logout()} className="shrink-0 text-muted-foreground hover:text-destructive">
+          <LogOut className="size-4" />Sair<span className="hidden sm:inline"> da conta</span>
+        </Button>
       </header>
 
       <form onSubmit={(event) => void saveProfile(event)} className="space-y-7 rounded-3xl border border-border bg-card p-5 shadow-xs sm:p-8">
@@ -240,9 +245,6 @@ export default function ProfileSettingsPage() {
         {error && <p role="alert" className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
         {saved && <p role="status" className="flex items-center gap-2 text-sm font-medium text-primary"><Check className="size-4" />Perfil atualizado.</p>}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-          <Button type="button" variant="ghost" onClick={() => void logout()} className="text-muted-foreground hover:text-destructive">
-            <LogOut className="size-4" />Sair da conta
-          </Button>
           <Button type="submit" disabled={saving || name.trim().length < 2} className="rounded-xl">
             {saving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
             {saving ? "Salvando..." : "Salvar alterações"}

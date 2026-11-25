@@ -43,10 +43,9 @@ function NavbarContent() {
     <>
     <header className="sticky top-0 z-40 w-full border-b border-border/70 bg-background/90 backdrop-blur-md">
       <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <Link href="/" aria-label="Tribes — página inicial" className="flex shrink-0 items-center gap-2.5">
-          <span className="relative h-12 w-[7.25rem] shrink-0 overflow-hidden">
-            <Image src="/tribes-logo.svg" alt="Tribes" fill priority sizes="116px" className="object-contain dark:hidden" />
-            <Image src="/tribes-logo-dark.svg" alt="" fill priority sizes="116px" className="hidden object-contain dark:block" />
+        <Link href="/" aria-label="Tribes — página inicial" className="flex shrink-0 items-center">
+          <span className="relative h-10 w-[7.25rem] shrink-0 overflow-hidden">
+            <Image src="/tribes-logo.png" alt="Tribes — Comunidade e Natureza" fill priority sizes="116px" className="object-cover object-[center_40%]" />
           </span>
         </Link>
         <nav aria-label="Navegação principal" className="hidden items-center gap-6 lg:flex">
@@ -109,9 +108,8 @@ function NavbarFallback() {
       aria-hidden="true"
     >
       <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <span className="relative h-12 w-[7.25rem] shrink-0 overflow-hidden">
-          <Image src="/tribes-logo.svg" alt="" fill priority sizes="116px" className="object-contain dark:hidden" />
-          <Image src="/tribes-logo-dark.svg" alt="" fill priority sizes="116px" className="hidden object-contain dark:block" />
+        <span className="relative h-10 w-[7.25rem] shrink-0 overflow-hidden">
+          <Image src="/tribes-logo.png" alt="" fill priority sizes="116px" className="object-cover object-[center_40%]" />
         </span>
         <div className="size-10 animate-pulse rounded-xl bg-muted lg:hidden" />
         <div className="hidden h-9 w-40 animate-pulse rounded-full bg-muted lg:block" />
