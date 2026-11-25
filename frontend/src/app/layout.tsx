@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Plus_Jakarta_Sans, Inter, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { RouteStateReset } from "@/components/navigation/route-state-reset";
 
 const jakarta = Plus_Jakarta_Sans({
   variable: "--font-heading-sans",
@@ -47,13 +49,21 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
+      suppressHydrationWarning
+      data-scroll-behavior="smooth"
       className={`${jakarta.variable} ${inter.variable} ${jetbrainsMono.variable} h-full scroll-smooth antialiased`}
     >
-      <Script id="tribes-theme-init" strategy="beforeInteractive">
-        {`try { if (localStorage.getItem("tribes-theme") === "dark") document.documentElement.classList.add("dark"); } catch {}`}
-      </Script>
+      <head>
+        <Script id="tribes-theme-init" strategy="beforeInteractive">
+          {`try { if (localStorage.getItem("tribes-theme") === "dark") document.documentElement.classList.add("dark"); } catch {}`}
+        </Script>
+      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground selection:bg-primary/15 selection:text-primary">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <Suspense fallback={<div className="min-h-screen" aria-hidden="true" />}>
+            <RouteStateReset>{children}</RouteStateReset>
+          </Suspense>
+        </ThemeProvider>
       </body>
     </html>
   );

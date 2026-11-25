@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import Image from "next/image";
 import {
   BarChart3,
@@ -38,6 +38,7 @@ function getTribeButtonLabel(name?: string) {
 export function FeedComposer({ tribes, onPublished }: FeedComposerProps) {
   const { user } = useCurrentUser();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const tribePickerRef = useRef<HTMLDivElement>(null);
   const [tribeId, setTribeId] = useState("");
   const [tribePickerOpen, setTribePickerOpen] = useState(false);
   const [body, setBody] = useState("");
@@ -56,6 +57,19 @@ export function FeedComposer({ tribes, onPublished }: FeedComposerProps) {
   const [eventLocationCoordinates, setEventLocationCoordinates] = useState<Pick<EventLocation, "lat" | "lon"> | null>(null);
   const [eventCost, setEventCost] = useState("");
   const [eventCapacity, setEventCapacity] = useState("");
+
+  useEffect(() => {
+    if (!tribePickerOpen) return;
+
+    function handleOutsideClick(event: PointerEvent) {
+      if (event.target instanceof Node && !tribePickerRef.current?.contains(event.target)) {
+        setTribePickerOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handleOutsideClick);
+    return () => document.removeEventListener("pointerdown", handleOutsideClick);
+  }, [tribePickerOpen]);
 
   const selectedTribe = tribes.find((tribe) => tribe.id === tribeId);
   const selectedTribeId = selectedTribe?.id ?? "";
@@ -195,7 +209,13 @@ export function FeedComposer({ tribes, onPublished }: FeedComposerProps) {
     >
       <div className="flex items-start gap-3">
         <UserAvatar name={user.name} avatarUrl={user.avatarUrl} className="size-11" />
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
+          <div className="mb-1 flex justify-end">
+            <Button type="submit" disabled={creating || !tribes.length || !selectedTribeId || !body.trim() || pollInvalid} className="h-8 min-h-8 gap-1 rounded-full px-2.5 text-[11px] leading-none sm:h-9 sm:min-h-9 sm:gap-1.5 sm:px-3 sm:text-xs lg:h-10 lg:min-h-10 lg:px-4 lg:text-sm">
+            {creating ? <LoaderCircle className="size-3.5 shrink-0 animate-spin sm:size-4" /> : <Send className="size-3.5 shrink-0 sm:size-4" />}
+            <span>Publicar</span>
+            </Button>
+          </div>
           <textarea
             ref={textareaRef}
             aria-label="Escreva sua publicação"
@@ -251,8 +271,8 @@ export function FeedComposer({ tribes, onPublished }: FeedComposerProps) {
           {!tribes.length && <p className="mt-2 text-sm text-muted-foreground">Entre em uma tribo antes de publicar.</p>}
           {composerError && <p role="alert" className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{composerError}</p>}
 
-          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-border pt-3">
-            <div className="-ml-2 flex items-center gap-0.5">
+          <div className="mt-3 flex flex-nowrap items-center gap-1.5 border-t border-border pt-3">
+            <div className="relative -left-4 flex shrink-0 items-center gap-0">
               <label htmlFor="composer-image" title="Adicionar imagem" className={`${toolButton} cursor-pointer`}>
                 <ImagePlus className="size-5" />
                 <span className="sr-only">Adicionar imagem</span>
@@ -266,8 +286,8 @@ export function FeedComposer({ tribes, onPublished }: FeedComposerProps) {
               </button>
             </div>
 
-            <div className="ml-auto grid w-full min-w-0 grid-cols-2 items-stretch gap-2 sm:flex sm:w-auto sm:shrink-0 sm:flex-row">
-              <div className="relative min-w-0 sm:flex-none">
+            <div className="ml-auto flex w-fit min-w-0 justify-end">
+              <div ref={tribePickerRef} className="relative w-[150px] max-w-[45vw] min-w-0">
                 <div id="composer-tribe-options" hidden={!tribePickerOpen || !tribes.length} role="group" aria-label="Escolha uma tribo para publicar" className="absolute bottom-full right-0 z-30 mb-2 max-h-64 w-64 max-w-[calc(100vw-3rem)] overflow-y-auto rounded-xl border border-border bg-background p-3 shadow-lg">
                   <div className="flex flex-wrap gap-2">
                     {tribes.map((tribe) => <button
@@ -297,9 +317,9 @@ export function FeedComposer({ tribes, onPublished }: FeedComposerProps) {
                     setTribePickerOpen((open) => !open);
                     setComposerError("");
                   }}
-                  className={`w-full min-w-0 rounded-full px-3 sm:w-auto sm:px-5 ${tribePickerOpen || selectedTribe ? "ring-2 ring-primary/30" : ""}`}
+                  className={`h-8 min-h-8 w-full min-w-0 gap-1 rounded-full px-1.5 text-[11px] leading-none sm:px-1.5 sm:text-[11px] ${tribePickerOpen || selectedTribe ? "ring-2 ring-primary/30" : ""}`}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-flame-kindling size-5" aria-hidden="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-flame-kindling size-4 shrink-0 sm:size-4" aria-hidden="true">
                     <path d="M12 2c1 3 2.5 3.5 3.5 4.5A5 5 0 0 1 17 10a5 5 0 1 1-10 0c0-.3 0-.6.1-.9a2 2 0 1 0 3.3-2C8 4.5 11 2 12 2Z" />
                     <path d="m5 22 14-4" />
                     <path d="m5 18 14 4" />
@@ -308,10 +328,7 @@ export function FeedComposer({ tribes, onPublished }: FeedComposerProps) {
                 </Button>
               </div>
 
-              <Button type="submit" disabled={creating || !tribes.length || !selectedTribeId || !body.trim() || pollInvalid} className="w-full min-w-0 rounded-full px-3 sm:w-auto sm:px-5">
-                {creating ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
-                <span className="min-w-0 truncate">{eventMode ? "Publicar evento" : pollMode ? "Publicar enquete" : "Publicar"}</span>
-              </Button>
+              
             </div>
           </div>
         </div>

@@ -97,18 +97,18 @@ export function SocialHeader({ user }: { user: CurrentUser }) {
         </div>
       </div>
     </header>
-    <nav aria-label="Navegação inferior" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border/80 bg-background/95 px-1 pt-2 pb-2 shadow-md backdrop-blur-md lg:hidden" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.5rem)" }}>
-      {nav.filter((item) => item.href !== "/minhas-tribos").map((item) => {
+    <nav aria-label="Navegação inferior" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-border/80 bg-background/95 px-1 pt-2 pb-2 shadow-md backdrop-blur-md lg:hidden" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0.5rem)" }}>
+      {nav.map((item) => {
         const Icon = item.icon;
         const active = isActive(item.href);
         return (
-          <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[9px] font-semibold leading-tight transition-colors sm:text-[10px] ${active ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+          <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 py-1 min-h-14 text-[9px] font-semibold leading-[10px] transition-colors sm:text-[10px] ${active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
             <span className="relative"><Icon className="size-5 shrink-0" />{item.href === "/mensagens" && unreadDirectMessages > 0 && <span className="absolute -right-2 -top-1 size-2 rounded-full bg-primary" aria-label={`${unreadDirectMessages} mensagens não lidas`} />}</span>
-            <span className="max-w-full truncate">{item.label}</span>
+            <span className="max-w-full text-center whitespace-normal break-words">{item.href === "/tribos" ? "Explorar tribos" : item.label}</span>
           </Link>
         );
       })}
-      <Link href="/perfil" aria-label="Meu perfil" aria-current={pathname === "/perfil" ? "page" : undefined} className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl py-1 text-[9px] font-semibold leading-tight transition-colors sm:text-[10px] ${pathname === "/perfil" ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+      <Link href="/perfil" aria-label="Meu perfil" aria-current={pathname === "/perfil" ? "page" : undefined} className={`flex min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-0.5 py-1 text-[8px] font-semibold leading-tight transition-colors sm:text-[9px] ${pathname === "/perfil" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
         {user.avatarUrl ? <UserAvatar name={user.name} avatarUrl={user.avatarUrl} className="size-5" /> : <UserRound className="size-5 shrink-0" />}
         <span>Perfil</span>
       </Link>
