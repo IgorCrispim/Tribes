@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { Navbar } from "@/components/tribes/navbar";
@@ -10,13 +10,41 @@ import { Button } from "@/components/ui/button";
 import { TribeExplorer } from "@/components/tribes/tribe-explorer";
 import { trackMvpEvent } from "@/lib/mvp-tracker";
 import { SiteFooter } from "@/components/tribes/site-footer";
+import { AuthLoadingState } from "@/components/social/auth-guard";
 
 export default function TribesLandingPage() {
   const router = useRouter();
+  const [sessionState, setSessionState] = useState<"loading" | "guest" | "error">("loading");
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     void trackMvpEvent({ event: "page_view", pagePath: "/" });
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then(async (response) => {
+        if (response.status === 401) return { user: null };
+        if (!response.ok) throw new Error("session-check-failed");
+        return response.json() as Promise<{ user: unknown | null }>;
+      })
+      .then(({ user }) => {
+        if (!active) return;
+        if (user) router.replace("/feed");
+        else setSessionState("guest");
+      })
+      .catch(() => { if (active) setSessionState("error"); });
+    return () => { active = false; };
+  }, [router, retryCount]);
+
+  if (sessionState === "loading") return <AuthLoadingState />;
+  if (sessionState === "error") return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+      <p role="alert" className="max-w-md text-sm text-muted-foreground">Não foi possível confirmar sua sessão agora. Confira sua conexão e tente novamente.</p>
+      <Button type="button" onClick={() => { setSessionState("loading"); setRetryCount((count) => count + 1); }}>Tentar novamente</Button>
+    </div>
+  );
 
   return (
     <div className="flex min-h-screen flex-col">
