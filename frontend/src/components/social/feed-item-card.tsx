@@ -336,8 +336,14 @@ export function FeedItemCard({ item, onUpdateItem, onError, onRemoveItem }: Feed
                 lon: location?.lon ?? null,
               } : current)}
             />
-            <Input aria-label="Início do evento" type="datetime-local" value={eventDraft.startsAt} onChange={(event) => setEventDraft((current) => current ? { ...current, startsAt: event.target.value } : current)} />
-            <Input aria-label="Término do evento" type="datetime-local" value={eventDraft.endsAt} onChange={(event) => setEventDraft((current) => current ? { ...current, endsAt: event.target.value } : current)} />
+            <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4 shrink-0 text-primary" />Data e horário de início</span>
+              <Input className="h-10 text-foreground" aria-label="Data e horário de início do evento" type="datetime-local" value={eventDraft.startsAt} onChange={(event) => setEventDraft((current) => current ? { ...current, startsAt: event.target.value } : current)} />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4 shrink-0 text-primary" />Data e horário de término</span>
+              <Input className="h-10 text-foreground" aria-label="Data e horário de término do evento" type="datetime-local" value={eventDraft.endsAt} onChange={(event) => setEventDraft((current) => current ? { ...current, endsAt: event.target.value } : current)} />
+            </label>
             <Input aria-label="Custo do evento" value={eventDraft.cost} onChange={(event) => setEventDraft((current) => current ? { ...current, cost: event.target.value } : current)} maxLength={100} placeholder="Custo (opcional)" />
             <Input aria-label="Limite de participantes" type="number" min="1" max="10000" value={eventDraft.maxAttendees} onChange={(event) => setEventDraft((current) => current ? { ...current, maxAttendees: event.target.value } : current)} placeholder="Sem limite" />
           </div>}

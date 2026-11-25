@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "r
 import Image from "next/image";
 import {
   BarChart3,
+  CalendarDays,
   ImagePlus,
   LoaderCircle,
   PartyPopper,
@@ -241,8 +242,14 @@ export function FeedComposer({ tribes, onPublished }: FeedComposerProps) {
                 setEventLocationCoordinates(location ? { lat: location.lat, lon: location.lon } : null);
               }}
             />
-            <Input aria-label="Início do evento" type="datetime-local" value={eventStartsAt} onChange={(event) => setEventStartsAt(event.target.value)} required />
-            <Input aria-label="Término do evento" type="datetime-local" value={eventEndsAt} onChange={(event) => setEventEndsAt(event.target.value)} />
+            <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4 shrink-0 text-primary" />Data e horário de início</span>
+              <Input className="h-10 text-foreground" aria-label="Data e horário de início do evento" type="datetime-local" value={eventStartsAt} onChange={(event) => setEventStartsAt(event.target.value)} required />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5"><CalendarDays className="size-4 shrink-0 text-primary" />Data e horário de término</span>
+              <Input className="h-10 text-foreground" aria-label="Data e horário de término do evento" type="datetime-local" value={eventEndsAt} onChange={(event) => setEventEndsAt(event.target.value)} />
+            </label>
             <Input aria-label="Custo do evento" placeholder="Custo (opcional)" value={eventCost} onChange={(event) => setEventCost(event.target.value)} maxLength={100} />
             <Input aria-label="Limite de participantes" type="number" min="1" max="10000" placeholder="Limite de participantes" value={eventCapacity} onChange={(event) => setEventCapacity(event.target.value)} />
             <button type="button" disabled={creating} onClick={() => changeEventMode(false)} className="border-t border-border pt-3 text-center text-sm font-semibold text-destructive hover:underline disabled:opacity-50 sm:col-span-2">Remover evento</button>
