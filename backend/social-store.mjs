@@ -384,6 +384,38 @@ export async function getUserByEmail(email) {
   return rows[0] ?? null;
 }
 
+export async function getUserPasswordHash(userId) {
+  const { rows } = await pool.query("SELECT password_hash FROM users WHERE id = $1", [userId]);
+  return rows[0]?.password_hash ?? null;
+}
+
+export async function changeUserPassword(userId, currentPasswordHash, nextPasswordHash, currentToken) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rowCount } = await client.query(
+      "UPDATE users SET password_hash = $3 WHERE id = $1 AND password_hash = $2",
+      [userId, currentPasswordHash, nextPasswordHash]
+    );
+    if (!rowCount) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    await client.query(
+      "DELETE FROM user_sessions WHERE user_id = $1 AND token_hash <> $2",
+      [userId, digestSessionToken(currentToken)]
+    );
+    await client.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [userId]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function createSession(userId, token, expiresAt) {
   await pool.query(
     "INSERT INTO user_sessions (token_hash, user_id, expires_at) VALUES ($1, $2, $3)",
@@ -439,35 +471,6 @@ export async function renewSession(token, idleTtlSeconds) {
     [digestSessionToken(token), idleTtlSeconds, SESSION_MAX_AGE_SECONDS, SESSION_RENEW_THRESHOLD_SECONDS]
   );
   return rows[0]?.ttl_seconds ?? null;
-}
-
-export async function listUserSessions(userId, currentToken) {
-  const { rows } = await pool.query(
-    `SELECT id, created_at, last_seen_at, expires_at, token_hash = $2 AS is_current
-     FROM user_sessions
-     WHERE user_id = $1 AND expires_at > CURRENT_TIMESTAMP
-       AND created_at + ($3 * INTERVAL '1 second') > CURRENT_TIMESTAMP
-     ORDER BY (token_hash = $2) DESC, last_seen_at DESC`,
-    [userId, digestSessionToken(currentToken), SESSION_MAX_AGE_SECONDS]
-  );
-  return rows;
-}
-
-export async function revokeUserSession(userId, sessionId, currentToken) {
-  const { rowCount } = await pool.query(
-    `DELETE FROM user_sessions
-     WHERE user_id = $1 AND id = $2 AND token_hash <> $3`,
-    [userId, sessionId, digestSessionToken(currentToken)]
-  );
-  return rowCount > 0;
-}
-
-export async function revokeOtherUserSessions(userId, currentToken) {
-  const { rowCount } = await pool.query(
-    "DELETE FROM user_sessions WHERE user_id = $1 AND token_hash <> $2",
-    [userId, digestSessionToken(currentToken)]
-  );
-  return rowCount;
 }
 
 export async function deleteSession(token) {

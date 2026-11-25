@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import https from "node:https";
 import pg from "pg";
+import { digestSessionToken } from "../security.mjs";
 import { createObjectStorage, getObjectStorage } from "../object-storage.mjs";
 import { transferLegacyImageRow } from "../legacy-image-migration.mjs";
 
@@ -236,18 +237,16 @@ integrationTest("authenticated social feed, event attendance, likes, comments an
   assert.equal(secondLogin.response.status, 200);
   const secondSession = { cookie: secondLogin.response.headers.get("set-cookie")?.split(";")[0], user: alice.user };
   assert.ok(secondSession.cookie);
-  const listedSessions = await call(alice, "/api/auth/sessions");
-  assert.equal(listedSessions.response.status, 200);
-  assert.equal(listedSessions.data.sessions.length, 2);
-  const secondSessionInfo = listedSessions.data.sessions.find((session) => !session.is_current);
-  assert.ok(secondSessionInfo);
+  const secondSessionToken = decodeURIComponent(secondSession.cookie.slice("tribes_session=".length));
+  const secondSessionRow = await pool.query("SELECT id FROM user_sessions WHERE token_hash = $1", [digestSessionToken(secondSessionToken)]);
+  assert.ok(secondSessionRow.rows[0]);
 
   await pool.query(
     `UPDATE user_sessions
      SET created_at = CURRENT_TIMESTAMP - INTERVAL '84 days',
-         expires_at = CURRENT_TIMESTAMP + INTERVAL '1 day'
-     WHERE id = $1`,
-    [secondSessionInfo.id]
+          expires_at = CURRENT_TIMESTAMP + INTERVAL '1 day'
+      WHERE id = $1`,
+    [secondSessionRow.rows[0].id]
   );
   const cappedRenewal = await call(secondSession, "/api/auth/me");
   assert.equal(cappedRenewal.data.user.id, alice.user.id);
@@ -257,13 +256,12 @@ integrationTest("authenticated social feed, event attendance, likes, comments an
 
   await pool.query(
     `UPDATE user_sessions
-     SET created_at = CURRENT_TIMESTAMP - INTERVAL '91 days',
-         expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days'
-     WHERE id = $1`,
-    [secondSessionInfo.id]
+      SET created_at = CURRENT_TIMESTAMP - INTERVAL '91 days',
+          expires_at = CURRENT_TIMESTAMP + INTERVAL '30 days'
+      WHERE id = $1`,
+    [secondSessionRow.rows[0].id]
   );
   assert.equal((await call(secondSession, "/api/auth/me")).data.user, null);
-  assert.equal((await call(alice, `/api/auth/sessions/${secondSessionInfo.id}`, { method: "DELETE" })).response.status, 200);
 
   const thirdLogin = await call(null, "/api/auth/login", {
     method: "POST",
@@ -271,10 +269,47 @@ integrationTest("authenticated social feed, event attendance, likes, comments an
   });
   const thirdSession = { cookie: thirdLogin.response.headers.get("set-cookie")?.split(";")[0], user: alice.user };
   assert.ok(thirdSession.cookie);
-  const revokeOthers = await call(alice, "/api/auth/sessions/revoke-others", { method: "POST" });
-  assert.equal(revokeOthers.response.status, 200);
-  assert.equal(revokeOthers.data.revokedCount, 1);
+
+  const passwordChangePath = "/api/auth/password-change";
+  const unauthorizedPasswordChange = await call(null, passwordChangePath, {
+    method: "POST",
+    body: JSON.stringify({ currentPassword: "New-integration-test-password", newPassword: "Changed-integration-password", confirmPassword: "Changed-integration-password" }),
+  });
+  assert.equal(unauthorizedPasswordChange.response.status, 401);
+  const wrongCurrentPassword = await call(alice, passwordChangePath, {
+    method: "POST",
+    body: JSON.stringify({ currentPassword: "wrong-password", newPassword: "Changed-integration-password", confirmPassword: "Changed-integration-password" }),
+  });
+  assert.equal(wrongCurrentPassword.response.status, 401);
+  const mismatchedPasswordConfirmation = await call(alice, passwordChangePath, {
+    method: "POST",
+    body: JSON.stringify({ currentPassword: "New-integration-test-password", newPassword: "Changed-integration-password", confirmPassword: "Different-integration-password" }),
+  });
+  assert.equal(mismatchedPasswordConfirmation.response.status, 400);
+  const weakNewPassword = await call(alice, passwordChangePath, {
+    method: "POST",
+    body: JSON.stringify({ currentPassword: "New-integration-test-password", newPassword: "weak", confirmPassword: "weak" }),
+  });
+  assert.equal(weakNewPassword.response.status, 400);
+  assert.equal((await call(alice, "/api/auth/sessions")).response.status, 404);
+
+  const passwordChange = await call(alice, passwordChangePath, {
+    method: "POST",
+    body: JSON.stringify({ currentPassword: "New-integration-test-password", newPassword: "Changed-integration-password", confirmPassword: "Changed-integration-password" }),
+  });
+  assert.equal(passwordChange.response.status, 200, JSON.stringify(passwordChange.data));
+  assert.equal((await call(alice, "/api/auth/me")).data.user.id, alice.user.id);
   assert.equal((await call(thirdSession, "/api/auth/me")).data.user, null);
+  const remainingSessions = await pool.query("SELECT token_hash FROM user_sessions WHERE user_id = $1", [alice.user.id]);
+  assert.deepEqual(remainingSessions.rows.map((row) => row.token_hash), [digestSessionToken(decodeURIComponent(alice.cookie.slice("tribes_session=".length)))]);
+  assert.equal((await call(null, "/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: alice.user.email, password: "New-integration-test-password" }),
+  })).response.status, 401);
+  assert.equal((await call(null, "/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email: alice.user.email, password: "Changed-integration-password" }),
+  })).response.status, 200);
 
   const reusedToken = await call(null, "/api/auth/register/complete", {
     method: "POST",
@@ -469,7 +504,7 @@ integrationTest("authenticated social feed, event attendance, likes, comments an
 
   const { response: loginResponse, data: loginData } = await call(null, "/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: alice.user.email, password: "New-integration-test-password" }),
+    body: JSON.stringify({ email: alice.user.email, password: "Changed-integration-password" }),
   });
   assert.equal(loginResponse.status, 200);
   assert.equal(loginData.user.id, alice.user.id);
@@ -765,14 +800,17 @@ integrationTest("authenticated social feed, event attendance, likes, comments an
   await new Promise((resolve) => setTimeout(resolve, 10));
   const postTwoId = await createPost(alice, tribeTwo, "Publicação da segunda tribo.");
   for (let index = 0; index < 23; index += 1) {
-    await createPost(alice, tribeOne, `Publicação paginada ${index + 1}`);
+    await pool.query(
+      "INSERT INTO feed_items (tribe_id, author_id, kind, body, poll_multiple) VALUES ($1, $2, 'post', $3, FALSE)",
+      [tribeOne.id, alice.user.id, `Publicação paginada ${index + 1}`]
+    );
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
 
   const feed = await call(alice, "/api/feed?limit=50");
   assert.equal(feed.response.status, 200);
   assert.deepEqual(new Set(feed.data.items.map((item) => item.tribe.id)), new Set([tribeOne.id, tribeTwo.id]));
-  assert.deepEqual(new Set(feed.data.items.map((item) => item.type)), new Set(["post", "event"]));
+  assert.deepEqual(new Set(feed.data.items.map((item) => item.type)), new Set(["post", "event", "poll"]));
   const eventInFeed = feed.data.items.find((item) => item.id === eventId);
   assert.equal(feed.data.items.find((item) => item.id === imagePostId).imageUrl, `/api/content/${imagePostId}/image`);
   assert.equal(eventInFeed.event.title, "Noite de jogos");

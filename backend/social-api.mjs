@@ -42,11 +42,10 @@ import {
   getPublicUserProfile,
   getPublicTribe,
   getSessionUser,
-  listUserSessions,
   renewSession,
-  revokeOtherUserSessions,
-  revokeUserSession,
   getUserByEmail,
+  getUserPasswordHash,
+  changeUserPassword,
   waitForEmailQueueDelivery,
   getUserProfileImage,
   joinTribe,
@@ -165,7 +164,8 @@ function allowApiAttempt(request, user, method) {
   }
   const write = !["GET", "HEAD", "OPTIONS"].includes(method);
   const key = user ? `user:${user.id}:${write ? "write" : "read"}` : `ip:${request.socket.remoteAddress ?? "unknown"}`;
-  const limit = user ? (write ? 45 : 180) : 30;
+  const writeLimit = process.env.NODE_ENV === "development" ? 100 : 45;
+  const limit = user ? (write ? writeLimit : 180) : 30;
   const attempt = apiAttempts.get(key);
   if (!attempt || now - attempt.startedAt > RATE_WINDOW_MS) {
     apiAttempts.set(key, { count: 1, startedAt: now });
@@ -344,37 +344,48 @@ export async function handleSocialRequest(request, response, url) {
       sendJson(response, 401, { error: "Autenticação necessária." });
       return true;
     }
-    const isSessionManagementRoute = pathname === "/api/auth/sessions" ||
-      pathname === "/api/auth/sessions/revoke-others" || /^\/api\/auth\/sessions\/[^/]+$/.test(pathname);
-    const allowedAttempt = isSessionManagementRoute && method !== "GET"
-      ? allowAuthAttempt(request, `sessions:${user.id}`)
+    const isPasswordChangeRoute = pathname === "/api/auth/password-change" && method === "POST";
+    const allowedAttempt = isPasswordChangeRoute
+      ? allowAuthAttempt(request, `password-change:${user.id}`)
       : allowApiAttempt(request, user, method);
     if (!allowedAttempt) {
       sendJson(response, 429, { error: "Muitas requisições. Aguarde um minuto e tente novamente." }, { "Retry-After": "60" });
       return true;
     }
 
-    if (pathname === "/api/auth/sessions" && method === "GET") {
-      const token = readCookie(request, SESSION_COOKIE);
-      return sendJson(response, 200, { sessions: await listUserSessions(user.id, token) }), true;
-    }
-
-    if (pathname === "/api/auth/sessions/revoke-others" && method === "POST") {
-      const token = readCookie(request, SESSION_COOKIE);
-      const revokedCount = await revokeOtherUserSessions(user.id, token);
-      return sendJson(response, 200, { revokedCount }), true;
-    }
-
-    const sessionMatch = pathname.match(/^\/api\/auth\/sessions\/([^/]+)$/);
-    if (sessionMatch && method === "DELETE") {
-      const sessionId = sessionMatch[1];
-      if (!UUID_PATTERN.test(sessionId)) throw invalid("Sessão inválida.");
-      const revoked = await revokeUserSession(user.id, sessionId, readCookie(request, SESSION_COOKIE));
-      if (!revoked) {
-        sendJson(response, 404, { error: "Sessão não encontrada ou não pode ser encerrada daqui." });
-        return true;
+    if (isPasswordChangeRoute) {
+      const payload = await readJson(request, { requireObject: true, invalidMessage: "Objeto JSON inválido." });
+      if (typeof payload.currentPassword !== "string" || payload.currentPassword.length < 1 || payload.currentPassword.length > 128) {
+        throw invalid("Informe sua senha atual.");
       }
-      return sendJson(response, 200, { ok: true }), true;
+      if (typeof payload.confirmPassword !== "string" || payload.confirmPassword !== payload.newPassword) {
+        throw invalid("A confirmação não corresponde à nova senha.");
+      }
+      const passwordError = passwordPolicyError(payload.newPassword);
+      if (passwordError) throw invalid(passwordError);
+
+      const currentPasswordHash = await getUserPasswordHash(user.id);
+      if (!currentPasswordHash || !(await verifyPassword(payload.currentPassword, currentPasswordHash))) {
+        const error = new Error("A senha atual está incorreta.");
+        error.statusCode = 401;
+        throw error;
+      }
+      if (payload.currentPassword === payload.newPassword) {
+        throw invalid("A nova senha deve ser diferente da senha atual.");
+      }
+
+      const updated = await changeUserPassword(
+        user.id,
+        currentPasswordHash,
+        await hashPassword(payload.newPassword),
+        readCookie(request, SESSION_COOKIE),
+      );
+      if (!updated) {
+        const error = new Error("A senha foi alterada recentemente. Atualize a página e tente novamente.");
+        error.statusCode = 409;
+        throw error;
+      }
+      return sendJson(response, 200, { ok: true, message: "Senha alterada. As outras sessões foram encerradas." }), true;
     }
 
     if (pathname === "/api/profile" && method === "PATCH") {

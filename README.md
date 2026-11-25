@@ -67,7 +67,7 @@ Para produção, crie um token S3 em **Cloudflare Dashboard → R2 → Manage R2
 
 ## Feed e API social
 
-- `GET /api/auth/me`, `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:id`, `POST /api/auth/sessions/revoke-others`, `POST /api/auth/register` (solicita link por e-mail), `POST /api/auth/register/complete` (cria a conta e inicia a sessão), `POST /api/auth/password-reset` (solicita redefinição de senha por e-mail), `POST /api/auth/password-reset/complete` (altera a senha e inicia uma nova sessão), `POST /api/auth/login`, `POST /api/auth/logout`
+- `GET /api/auth/me`, `POST /api/auth/register` (solicita link por e-mail), `POST /api/auth/register/complete` (cria a conta e inicia a sessão), `POST /api/auth/password-change` (altera a senha atual e encerra outras sessões), `POST /api/auth/password-reset` (solicita redefinição de senha por e-mail), `POST /api/auth/password-reset/complete` (altera a senha e inicia uma nova sessão), `POST /api/auth/login`, `POST /api/auth/logout`
 - `GET /api/feed?tribeId=<uuid>&cursor=<cursor>&limit=20` — timeline cronológica paginada por cursor; o filtro de tribo é validado pela associação ativa do usuário.
 - `GET /api/tribes?q=<busca>&mine=true` e `POST /api/tribes`; `POST /api/tribes/:id/join` e `DELETE /api/tribes/:id/membership`
 - `POST /api/tribes/:id/posts` e `POST /api/tribes/:id/events`
@@ -84,7 +84,7 @@ SELECT 'avatares', count(*)
 FROM user_profile_images WHERE image_key IS NULL AND is_deleted = FALSE;
 ```
 
-A remoção dos binários antigos fica para uma migration posterior, depois de validar as cópias e com aprovação explícita. Os links de cadastro e redefinição de senha expiram em 30 minutos, só podem ser usados uma vez, e seus tokens são armazenados como hash. Ao redefinir uma senha, as sessões anteriores são encerradas. O provedor de e-mail é selecionado por `EMAIL_PROVIDER` (`mailhog` ou `resend`); para Resend, configure `RESEND_API_KEY`, `EMAIL_FROM` e `FRONTEND_URL` no backend. Curtidas são únicas por usuário/conteúdo; comentários só podem ser alterados pelo autor. O feed, as tribos e as interações exigem sessão autenticada.
+A remoção dos binários antigos fica para uma migration posterior, depois de validar as cópias e com aprovação explícita. Os links de cadastro e redefinição de senha expiram em 30 minutos, só podem ser usados uma vez, e seus tokens são armazenados como hash. Ao alterar a senha no perfil, a sessão atual é mantida e as demais são encerradas; ao redefinir a senha por e-mail, as sessões anteriores são encerradas e uma nova é iniciada. O provedor de e-mail é selecionado por `EMAIL_PROVIDER` (`mailhog` ou `resend`); para Resend, configure `RESEND_API_KEY`, `EMAIL_FROM` e `FRONTEND_URL` no backend. Curtidas são únicas por usuário/conteúdo; comentários só podem ser alterados pelo autor. O feed, as tribos e as interações exigem sessão autenticada.
 
 Para executar testes unitários do backend: `docker compose exec backend npm test`. Com o Compose ativo, os testes de integração contra PostgreSQL, API e RustFS são executados com `docker compose exec backend npm run test:integration`.
 
