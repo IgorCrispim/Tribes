@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Bell, CheckCheck, Heart, MessageCircle, CalendarDays, ArrowRight } from "lucide-react";
+import { Bell, CheckCheck, Heart, MessageCircle, CalendarDays, ArrowRight, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type Notification = {
   id: string;
-  type: "post_like" | "post_comment" | "event_created" | "event_attendance";
+  type: "post_like" | "post_comment" | "event_created" | "event_attendance" | "tribe_invitation";
   contentId: string | null;
   tribeId: string | null;
   tribeName: string | null;
@@ -21,6 +21,7 @@ const copy = {
   post_comment: { verb: "comentou em sua publicação", Icon: MessageCircle },
   event_created: { verb: "publicou um novo evento em", Icon: CalendarDays },
   event_attendance: { verb: "confirmou presença no seu evento em", Icon: CalendarDays },
+  tribe_invitation: { verb: "convidou você para a tribo", Icon: Users },
 };
 
 function relativeDate(value: string) {
@@ -91,7 +92,7 @@ export default function NotificationsPage() {
         <div className="mt-8 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
           {items.map((item) => {
             const { verb, Icon } = copy[item.type];
-            const target = item.contentId ? `/publicacoes/${encodeURIComponent(item.contentId)}` : "/feed";
+            const target = item.type === "tribe_invitation" && item.tribeId ? `/tribos/${encodeURIComponent(item.tribeId)}` : item.contentId ? `/publicacoes/${encodeURIComponent(item.contentId)}` : "/feed";
             return (
               <article key={item.id} className={`flex items-center gap-3 p-4 transition-colors sm:gap-4 ${item.readAt ? "" : "bg-primary/[0.045]"}`}>
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icon className="size-5" /></span>
@@ -100,7 +101,7 @@ export default function NotificationsPage() {
                   <p className="mt-1 text-xs text-muted-foreground">{relativeDate(item.createdAt)}</p>
                 </div>
                 {!item.readAt && <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="Não lida" />}
-                <Link href={target} onClick={() => { if (!item.readAt) void markRead(item.id); }} aria-label="Abrir publicação ou evento" className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowRight className="size-4" /></Link>
+                <Link href={target} onClick={() => { if (!item.readAt) void markRead(item.id); }} aria-label={item.type === "tribe_invitation" ? "Abrir tribo" : "Abrir publicação ou evento"} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground"><ArrowRight className="size-4" /></Link>
               </article>
             );
           })}

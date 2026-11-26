@@ -11,6 +11,7 @@ import {
   getEmailQueuePause,
   getUserByEmail,
   pauseEmailQueue,
+  prepareInvitationEmail,
   releaseEmailQueueWorkerLock,
   retryEmailQueueItem,
 } from "./social-store.mjs";
@@ -18,6 +19,7 @@ import { digestSessionToken } from "./security.mjs";
 import { EmailDeliveryError } from "./email-provider.mjs";
 import { sendRegistrationEmail } from "./registration-email.mjs";
 import { sendPasswordResetEmail } from "./password-reset-email.mjs";
+import { sendTribeInvitationEmail } from "./tribe-invitation-email.mjs";
 
 const REGISTRATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const PASSWORD_RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
@@ -63,8 +65,12 @@ async function processNextEmail() {
       item.kind === "registration" ? REGISTRATION_TOKEN_TTL_MS : PASSWORD_RESET_TOKEN_TTL_MS
     ));
 
-    if (item.kind === "registration") {
-      const created = await createRegistrationToken({ email: item.email, tokenHash, expiresAt });
+    let invitation;
+    if (item.kind === "tribe_invitation") {
+      invitation = await prepareInvitationEmail(item.invitation_id, tokenHash);
+      if (!invitation) { await completeEmailQueueItem(item.id, "skipped"); return "skipped"; }
+    } else if (item.kind === "registration") {
+      const created = await createRegistrationToken({ email: item.email, tokenHash, expiresAt, invitationId: item.invitation_id, queueId: item.id });
       if (!created) {
         await completeEmailQueueItem(item.id, "skipped");
         return "skipped";
@@ -80,8 +86,10 @@ async function processNextEmail() {
     try {
       if (item.kind === "registration") {
         await sendRegistrationEmail(item.email, token);
-      } else {
+      } else if (item.kind === "password_reset") {
         await sendPasswordResetEmail(item.email, token);
+      } else {
+        await sendTribeInvitationEmail(invitation.email, token, invitation.inviter_name, invitation.tribe_name);
       }
       await completeEmailQueueItem(item.id);
       return "sent";
@@ -90,7 +98,7 @@ async function processNextEmail() {
       const quotaReset = nextResendQuotaReset(providerCode);
       if (quotaReset) {
         if (item.kind === "registration") await deleteRegistrationToken(tokenHash);
-        else await deletePasswordResetToken(tokenHash);
+        else if (item.kind === "password_reset") await deletePasswordResetToken(tokenHash);
         await pauseEmailQueue(quotaReset, providerCode);
         await retryEmailQueueItem(item.id, quotaReset.getTime() - Date.now(), error.message, {
           incrementAttempts: false,
@@ -101,7 +109,7 @@ async function processNextEmail() {
 
       if (error instanceof EmailDeliveryError && !error.retryable) {
         if (item.kind === "registration") await deleteRegistrationToken(tokenHash);
-        else await deletePasswordResetToken(tokenHash);
+        else if (item.kind === "password_reset") await deletePasswordResetToken(tokenHash);
         await failEmailQueueItem(item.id, error.message);
         console.error(`Email da fila ${item.id} rejeitado permanentemente: ${error.message}`);
         return "deferred";

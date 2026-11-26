@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/social/user-avatar";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { TribeChat } from "@/components/tribes/tribe-chat";
+import { TribeInvitations } from "@/components/tribes/tribe-invitations";
 import { apiRequest, type Tribe } from "@/lib/social-types";
 import { SAMPLE_TRIBES, type TribePreview } from "@/lib/tribes-data";
 
@@ -223,6 +224,7 @@ function TribeDetailContent() {
         </>}
 
         {!isSampleTribe && <>
+          <TribeInvitations tribeId={tribe.id} onAccepted={() => { if (!isMember) { setIsMember(true); setTribe(current => current ? { ...current, isMember: true, memberCount: current.memberCount + 1 } : current); } }} />
           <section className="rounded-3xl border border-border bg-card p-3 sm:p-4">
             <button
               type="button"

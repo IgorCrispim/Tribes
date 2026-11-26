@@ -9,6 +9,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { PASSWORD_HINT, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, passwordPolicyError } from "@/lib/password-policy";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { clearInvitationToken, getInvitationToken } from "@/lib/invitation-token";
 
 export function RegistrationConfirmationForm({ token }: { token: string }) {
   const router = useRouter();
@@ -40,7 +41,24 @@ export function RegistrationConfirmationForm({ token }: { token: string }) {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Não foi possível criar sua conta.");
-      router.replace("/feed");
+      const storedInvitation = getInvitationToken();
+      if (result.invitationTribeId) {
+        clearInvitationToken();
+        router.replace(`/tribos/${encodeURIComponent(result.invitationTribeId)}`);
+      } else if (storedInvitation) {
+        router.replace("/convite");
+      } else {
+        let destination = "/feed";
+        try {
+          const pending = await fetch("/api/invitations", { cache: "no-store" });
+          if (pending.ok) {
+            const data = await pending.json();
+            const tribeId = data.invitations?.[0]?.tribeId;
+            if (typeof tribeId === "string") destination = `/tribos/${encodeURIComponent(tribeId)}`;
+          }
+        } catch { /* O cadastro continua concluído se a consulta de convites falhar. */ }
+        router.replace(destination);
+      }
       router.refresh();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Tente novamente.");

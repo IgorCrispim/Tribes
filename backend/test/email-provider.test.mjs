@@ -2,10 +2,29 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { sendRegistrationEmail } from "../registration-email.mjs";
 import { sendPasswordResetEmail } from "../password-reset-email.mjs";
+import { sendTribeInvitationEmail } from "../tribe-invitation-email.mjs";
 import { EmailDeliveryError } from "../email-provider.mjs";
 
 const registrationToken = "registration-token-test-value";
 const resetToken = "password-reset-token-test-value";
+
+test("tribe invitation uses the existing provider and safely includes its destination", async () => {
+  const sent = [];
+  const env = { EMAIL_PROVIDER: "mailhog", EMAIL_FROM: "Tribes <no-reply@tribes.local>", FRONTEND_URL: "https://tribes.example.test" };
+  await sendTribeInvitationEmail("invited@example.test", "secret-token", "Ana <Admin>", "Clube & Amigos", {
+    env, createTransport: () => ({ async sendMail(message) { sent.push(message); } }),
+  });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, "invited@example.test");
+  assert.match(sent[0].text, /Ana <Admin> convidou você/);
+  assert.match(sent[0].text, /Clube & Amigos/);
+  assert.match(sent[0].html, /Ana &lt;Admin&gt;/);
+  assert.match(sent[0].html, /Clube &amp; Amigos/);
+  const url = sent[0].text.match(/https:\/\/[^\s]+/)[0];
+  assert.equal(new URL(url).pathname, "/convite");
+  assert.equal(new URLSearchParams(new URL(url).hash.slice(1)).get("token"), "secret-token");
+  assert.equal(new URL(url).search, "");
+});
 
 function getLink(body, path) {
   const match = body.match(new RegExp(`https?:\\/\\/[^\\s<"]+${path}\\?token=[^\\s<"]+`));

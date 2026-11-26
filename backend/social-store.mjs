@@ -43,7 +43,7 @@ export async function initializeSocialStore() {
   await pool.query("DELETE FROM email_queue WHERE status IN ('sent', 'failed', 'skipped') AND created_at < CURRENT_TIMESTAMP - INTERVAL '30 days'");
 }
 
-export async function createRegistrationToken({ email, tokenHash, expiresAt }) {
+export async function createRegistrationToken({ email, tokenHash, expiresAt, invitationId = null, queueId = null }) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -53,10 +53,14 @@ export async function createRegistrationToken({ email, tokenHash, expiresAt }) {
       await client.query("COMMIT");
       return false;
     }
+    if (queueId) {
+      const queued = await client.query("SELECT invitation_id FROM email_queue WHERE id = $1", [queueId]);
+      invitationId = queued.rows[0]?.invitation_id ?? null;
+    }
     await client.query("DELETE FROM registration_tokens WHERE expires_at <= CURRENT_TIMESTAMP");
     await client.query(
-      "INSERT INTO registration_tokens (token_hash, email, expires_at) VALUES ($1, $2, $3)",
-      [tokenHash, email, expiresAt]
+      "INSERT INTO registration_tokens (token_hash, email, expires_at, invitation_id) VALUES ($1, $2, $3, $4)",
+      [tokenHash, email, expiresAt, invitationId]
     );
     await client.query("COMMIT");
     return true;
@@ -102,11 +106,12 @@ export async function deletePasswordResetToken(tokenHash) {
   await pool.query("DELETE FROM password_reset_tokens WHERE token_hash = $1", [tokenHash]);
 }
 
-export async function enqueueEmail({ email, kind }) {
+export async function enqueueEmail({ email, kind, invitationId = null }) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`${kind}:${email}`]);
+    if (kind === "registration" && invitationId) await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [email]);
     const { rows: existing } = await client.query(
       `SELECT id, status FROM email_queue
        WHERE kind = $1 AND email = $2
@@ -115,12 +120,16 @@ export async function enqueueEmail({ email, kind }) {
       [kind, email]
     );
     if (existing.length > 0) {
+      if (kind === "registration" && invitationId) {
+        await client.query("UPDATE email_queue SET invitation_id = $2 WHERE id = $1", [existing[0].id, invitationId]);
+        await client.query("UPDATE registration_tokens SET invitation_id = $2 WHERE email = $1 AND expires_at > CURRENT_TIMESTAMP", [email, invitationId]);
+      }
       await client.query("COMMIT");
       return existing[0];
     }
     const { rows } = await client.query(
-      "INSERT INTO email_queue (email, kind) VALUES ($1, $2) RETURNING id, status",
-      [email, kind]
+      "INSERT INTO email_queue (email, kind, invitation_id) VALUES ($1, $2, $3) RETURNING id, status",
+      [email, kind, invitationId]
     );
     await client.query("COMMIT");
     return rows[0];
@@ -223,7 +232,7 @@ export async function claimNextEmail() {
        WHERE status = 'processing' AND locked_at < CURRENT_TIMESTAMP - INTERVAL '1 minute'`
     );
     const { rows } = await client.query(
-      `SELECT id, email, kind, attempts
+      `SELECT id, email, kind, attempts, invitation_id
        FROM email_queue
        WHERE status = 'pending' AND available_at <= CURRENT_TIMESTAMP
        ORDER BY CASE WHEN kind = 'password_reset' THEN 0 ELSE 1 END, created_at, id
@@ -333,7 +342,7 @@ export async function completeRegistration({ tokenHash, displayName, passwordHas
   try {
     await client.query("BEGIN");
     const { rows: tokens } = await client.query(
-      `SELECT email FROM registration_tokens
+      `SELECT email, invitation_id FROM registration_tokens
        WHERE token_hash = $1 AND expires_at > CURRENT_TIMESTAMP
       `,
       [tokenHash]
@@ -345,7 +354,7 @@ export async function completeRegistration({ tokenHash, displayName, passwordHas
 
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [tokens[0].email]);
     const { rows: validTokens } = await client.query(
-      `SELECT email FROM registration_tokens
+      `SELECT email, invitation_id FROM registration_tokens
        WHERE token_hash = $1 AND expires_at > CURRENT_TIMESTAMP
        FOR UPDATE`,
       [tokenHash]
@@ -366,8 +375,19 @@ export async function completeRegistration({ tokenHash, displayName, passwordHas
       [digestSessionToken(sessionToken), rows[0].id, sessionExpiresAt]
     );
     await client.query("DELETE FROM registration_tokens WHERE email = $1", [validTokens[0].email]);
+    await client.query(
+      `INSERT INTO notifications (recipient_id, actor_id, type, tribe_id, invitation_id)
+       SELECT $1, i.inviter_id, 'tribe_invitation', i.tribe_id, i.id
+       FROM tribe_invitations i
+       WHERE i.email = $2 AND i.status = 'pending' AND i.expires_at > CURRENT_TIMESTAMP AND i.inviter_id <> $1
+       ON CONFLICT (invitation_id) WHERE invitation_id IS NOT NULL DO NOTHING`,
+      [rows[0].id, validTokens[0].email]
+    );
+    const invitation = validTokens[0].invitation_id ? await client.query(
+      "SELECT tribe_id FROM tribe_invitations WHERE id = $1 AND email = $2 AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP",
+      [validTokens[0].invitation_id, validTokens[0].email]) : { rows: [] };
     await client.query("COMMIT");
-    return toUser(rows[0]);
+    return { ...toUser(rows[0]), invitationTribeId: invitation.rows[0]?.tribe_id ?? null };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -762,6 +782,108 @@ export async function deleteTribe(userId, tribeId, confirmationName) {
   }
   await Promise.all(imageKeys.map(removeObjectBestEffort));
   return true;
+}
+
+export async function createTribeInvitation(userId, tribeId, email, tokenHash) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [email]);
+    const { rows: tribes } = await client.query("SELECT moderator_id FROM tribes WHERE id = $1 FOR UPDATE", [tribeId]);
+    if (!tribes.length || tribes[0].moderator_id !== userId) { await client.query("ROLLBACK"); return "forbidden"; }
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`tribe-inviter:${userId}`]);
+    const members = await client.query(
+      `SELECT 1 FROM users u JOIN tribe_memberships m ON m.user_id = u.id
+       WHERE u.email = $1 AND m.tribe_id = $2 AND m.status = 'active'`, [email, tribeId]);
+    if (members.rowCount) { await client.query("ROLLBACK"); return "member"; }
+    await client.query(
+      "UPDATE tribe_invitations SET status = 'expired', responded_at = CURRENT_TIMESTAMP WHERE tribe_id = $1 AND email = $2 AND status = 'pending' AND expires_at <= CURRENT_TIMESTAMP",
+      [tribeId, email]);
+    const existing = await client.query("SELECT 1 FROM tribe_invitations WHERE tribe_id = $1 AND email = $2 AND status = 'pending'", [tribeId, email]);
+    if (existing.rowCount) { await client.query("ROLLBACK"); return "duplicate"; }
+    const count = await client.query("SELECT COUNT(*)::int AS count FROM tribe_invitations WHERE inviter_id = $1 AND created_at > CURRENT_TIMESTAMP - INTERVAL '1 hour'", [userId]);
+    if (count.rows[0].count >= 20) { await client.query("ROLLBACK"); return "limited"; }
+    const { rows } = await client.query(
+      "INSERT INTO tribe_invitations (tribe_id, inviter_id, email, token_hash) VALUES ($1, $2, $3, $4) RETURNING id",
+      [tribeId, userId, email, tokenHash]);
+    const recipient = await client.query("SELECT id FROM users WHERE email = $1", [email]);
+    if (recipient.rowCount) {
+      await client.query("INSERT INTO notifications (recipient_id, actor_id, type, tribe_id, invitation_id) VALUES ($1, $2, 'tribe_invitation', $3, $4)", [recipient.rows[0].id, userId, tribeId, rows[0].id]);
+    } else {
+      await client.query("INSERT INTO email_queue (email, kind, invitation_id) VALUES ($1, 'tribe_invitation', $2)", [email, rows[0].id]);
+    }
+    await client.query("COMMIT");
+    return "created";
+  } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+}
+
+export async function prepareInvitationEmail(invitationId, tokenHash) {
+  const { rows } = await pool.query(
+    `UPDATE tribe_invitations i SET token_hash = $2
+     FROM tribes t, users u
+     WHERE i.id = $1 AND i.status = 'pending' AND i.expires_at > CURRENT_TIMESTAMP
+       AND t.id = i.tribe_id AND u.id = i.inviter_id
+     RETURNING i.email, t.name AS tribe_name, u.display_name AS inviter_name`, [invitationId, tokenHash]);
+  return rows[0] ?? null;
+}
+
+export async function listTribeInvitations(userId, tribeId) {
+  const { rows: allowed } = await pool.query("SELECT 1 FROM tribes WHERE id = $1 AND moderator_id = $2", [tribeId, userId]);
+  if (!allowed.length) return null;
+  const { rows } = await pool.query(
+    `SELECT i.id, i.email, i.created_at, i.expires_at FROM tribe_invitations i
+     JOIN tribes t ON t.id = i.tribe_id
+     WHERE i.tribe_id = $1 AND t.moderator_id = $2 AND i.status = 'pending' AND i.expires_at > CURRENT_TIMESTAMP ORDER BY i.created_at DESC`, [tribeId, userId]);
+  return rows.map(row => ({ id: row.id, email: row.email, createdAt: row.created_at, expiresAt: row.expires_at }));
+}
+
+export async function listReceivedInvitations(email, tribeId = null) {
+  const { rows } = await pool.query(
+    `SELECT i.id, i.tribe_id, t.name AS tribe_name, u.display_name AS inviter_name, i.expires_at
+     FROM tribe_invitations i JOIN tribes t ON t.id = i.tribe_id JOIN users u ON u.id = i.inviter_id
+     WHERE i.email = $1 AND i.status = 'pending' AND i.expires_at > CURRENT_TIMESTAMP
+       AND ($2::uuid IS NULL OR i.tribe_id = $2) ORDER BY i.created_at DESC`, [email, tribeId]);
+  return rows.map(row => ({ id: row.id, tribeId: row.tribe_id, tribeName: row.tribe_name, inviterName: row.inviter_name, expiresAt: row.expires_at }));
+}
+
+export async function resolveInvitation(email, tokenHash) {
+  const { rows } = await pool.query(
+    `SELECT tribe_id FROM tribe_invitations WHERE email = $1 AND token_hash = $2
+       AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP`, [email, tokenHash]);
+  return rows[0]?.tribe_id ?? null;
+}
+
+export async function invitationForRegistration(email, tokenHash) {
+  const { rows } = await pool.query(
+    "SELECT id FROM tribe_invitations WHERE email = $1 AND token_hash = $2 AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP", [email, tokenHash]);
+  return rows[0]?.id ?? null;
+}
+
+export async function respondToInvitation(userId, email, invitationId, action) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const lookup = await client.query("SELECT tribe_id FROM tribe_invitations WHERE id = $1", [invitationId]);
+    if (!lookup.rowCount) { await client.query("ROLLBACK"); return false; }
+    const tribeId = lookup.rows[0].tribe_id;
+    const tribe = await client.query("SELECT moderator_id FROM tribes WHERE id = $1 FOR UPDATE", [tribeId]);
+    if (!tribe.rowCount) { await client.query("ROLLBACK"); return false; }
+    const invite = await client.query(
+      "SELECT email FROM tribe_invitations WHERE id = $1 AND status = 'pending' AND expires_at > clock_timestamp() FOR UPDATE", [invitationId]);
+    if (!invite.rowCount || (action === 'cancelled' ? tribe.rows[0].moderator_id !== userId : invite.rows[0].email !== email)) {
+      await client.query("ROLLBACK"); return false;
+    }
+    if (action === 'accepted') {
+      await client.query(
+        `INSERT INTO tribe_memberships (tribe_id, user_id, status, joined_at, left_at)
+         VALUES ($1, $2, 'active', CURRENT_TIMESTAMP, NULL)
+         ON CONFLICT (tribe_id, user_id) DO UPDATE SET status = 'active', joined_at = CURRENT_TIMESTAMP, left_at = NULL
+         WHERE tribe_memberships.status <> 'active'`, [tribeId, userId]);
+    }
+    await client.query("UPDATE tribe_invitations SET status = $2, responded_at = CURRENT_TIMESTAMP WHERE id = $1", [invitationId, action]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 }
 
 export async function joinTribe(userId, tribeId, password) {

@@ -30,6 +30,12 @@ import {
   deleteContent,
   createSession,
   createTribe,
+  createTribeInvitation,
+  listTribeInvitations,
+  listReceivedInvitations,
+  resolveInvitation,
+  invitationForRegistration,
+  respondToInvitation,
   deleteTribe,
   decodeCursor,
   deleteSession,
@@ -184,7 +190,8 @@ export async function handleSocialRequest(request, response, url) {
     pathname === "/api/profile" || /^\/api\/users\/[^/]+\/(?:profile|avatar)$/.test(pathname) ||
     pathname === "/api/dm/users" || pathname === "/api/dm/conversations" || /^\/api\/dm\/conversations\/[^/]+(?:\/messages)?$/.test(pathname) ||
     pathname === "/api/feed" || pathname === "/api/saved" || /^\/api\/content\/[^/]+$/.test(pathname) || /^\/api\/content\/[^/]+\/save$/.test(pathname) || pathname === "/api/events" || pathname === "/api/notifications" || /^\/api\/notifications\/[^/]+\/read$/.test(pathname) || pathname === "/api/notifications/read-all" || pathname === "/api/tribes" || pathname === "/api/public/tribes" ||
-    /^\/api\/tribes\/[^/]+$/.test(pathname) || /^\/api\/tribes\/[^/]+\/(?:join|membership|posts|events|members|messages)$/.test(pathname) || /^\/api\/tribes\/[^/]+\/messages\/[^/]+$/.test(pathname) ||
+    /^\/api\/tribes\/[^/]+$/.test(pathname) || /^\/api\/tribes\/[^/]+\/(?:join|membership|posts|events|members|messages|invitations)$/.test(pathname) || /^\/api\/tribes\/[^/]+\/messages\/[^/]+$/.test(pathname) ||
+    pathname === "/api/invitations" || pathname === "/api/invitations/resolve" || /^\/api\/invitations\/[^/]+(?:\/(?:accept|decline))?$/.test(pathname) ||
     /^\/api\/content\/[^/]+\/image$/.test(pathname) ||
     /^\/api\/content\/[^/]+\/(?:like|comments|attendance|vote)$/.test(pathname) ||
     /^\/api\/comments\/[^/]+(?:\/like)?$/.test(pathname);
@@ -206,7 +213,9 @@ export async function handleSocialRequest(request, response, url) {
       const existingUser = await getUserByEmail(email);
       let message;
       if (!existingUser) {
-        const queuedEmail = await enqueueEmail({ email, kind: "registration" });
+        const inviteToken = typeof payload.invitationToken === "string" && payload.invitationToken.length <= 200 ? payload.invitationToken : "";
+        const invitationId = inviteToken ? await invitationForRegistration(email, digestSessionToken(inviteToken)) : null;
+        const queuedEmail = await enqueueEmail({ email, kind: "registration", invitationId });
         wakeEmailQueueWorker();
         const delivery = await waitForEmailQueueDelivery(queuedEmail.id);
         message = registrationMessageForDelivery(delivery);
@@ -257,7 +266,7 @@ export async function handleSocialRequest(request, response, url) {
           console.error("Falha ao registrar conclusão de cadastro nas métricas:", error);
         }
       }
-      return sendJson(response, 201, withUser(user), { "Set-Cookie": sessionCookie(sessionToken) }), true;
+      return sendJson(response, 201, withUser(user, { invitationTribeId: user.invitationTribeId }), { "Set-Cookie": sessionCookie(sessionToken) }), true;
     }
 
     if (pathname === "/api/auth/password-reset" && method === "POST") {
@@ -773,6 +782,51 @@ export async function handleSocialRequest(request, response, url) {
       return true;
     }
 
+    const tribeInvitationsMatch = pathname.match(/^\/api\/tribes\/([^/]+)\/invitations$/);
+    if (tribeInvitationsMatch && ["GET", "POST"].includes(method)) {
+      const tribeId = requireUuid(tribeInvitationsMatch[1], "Tribo");
+      if (method === "GET") {
+        const invitations = await listTribeInvitations(user.id, tribeId);
+        if (!invitations) { sendJson(response, 404, { error: "Tribo não encontrada ou sem permissão." }); return true; }
+        sendJson(response, 200, { invitations });
+      } else {
+        const payload = await readJson(request, { maxSize: 4096 });
+        const email = requiredString(payload.email, "e-mail", 3, 254).toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw invalid("Informe um e-mail válido.");
+        const token = createSessionToken();
+        const result = await createTribeInvitation(user.id, tribeId, email, digestSessionToken(token));
+        if (result === "forbidden") { sendJson(response, 404, { error: "Tribo não encontrada ou sem permissão." }); return true; }
+        if (result === "member") { sendJson(response, 409, { error: "Esta pessoa já participa da tribo." }); return true; }
+        if (result === "duplicate") { sendJson(response, 409, { error: "Já existe um convite pendente para este e-mail." }); return true; }
+        if (result === "limited") { sendJson(response, 429, { error: "Limite de convites atingido. Tente novamente mais tarde." }); return true; }
+        wakeEmailQueueWorker();
+        sendJson(response, 202, { message: "Convite registrado. Se necessário, o e-mail será enviado." });
+      }
+      return true;
+    }
+    if (pathname === "/api/invitations" && method === "GET") {
+      const tribeId = url.searchParams.has("tribeId") ? requireUuid(url.searchParams.get("tribeId"), "Tribo") : null;
+      sendJson(response, 200, { invitations: await listReceivedInvitations(user.email, tribeId) });
+      return true;
+    }
+    if (pathname === "/api/invitations/resolve" && method === "POST") {
+      const payload = await readJson(request, { maxSize: 4096 });
+      const token = requiredString(payload.token, "convite", 20, 200);
+      const tribeId = await resolveInvitation(user.email, digestSessionToken(token));
+      if (!tribeId) { sendJson(response, 404, { error: "Convite inválido, expirado ou destinado a outra conta." }); return true; }
+      sendJson(response, 200, { tribeId });
+      return true;
+    }
+    const invitationAction = pathname.match(/^\/api\/invitations\/([^/]+)(?:\/(accept|decline))?$/);
+    if (invitationAction && ((method === "POST" && invitationAction[2]) || (method === "DELETE" && !invitationAction[2]))) {
+      const invitationId = requireUuid(invitationAction[1], "Convite");
+      const action = method === "DELETE" ? "cancelled" : invitationAction[2] === "accept" ? "accepted" : "declined";
+      const success = await respondToInvitation(user.id, user.email, invitationId, action);
+      if (!success) { sendJson(response, 404, { error: "Convite inválido, expirado ou sem permissão." }); return true; }
+      sendJson(response, 200, { ok: true });
+      return true;
+    }
+
     const membershipMatch = pathname.match(/^\/api\/tribes\/([^/]+)\/(join|membership)$/);
     if (membershipMatch && ["POST", "DELETE"].includes(method)) {
       const tribeId = requireUuid(membershipMatch[1], "Tribo");
@@ -795,7 +849,7 @@ export async function handleSocialRequest(request, response, url) {
       }
       sendJson(response, 200, joined
         ? { isMember: true }
-        : { isMember: false, tribeDeleted: result.tribeDeleted });
+        : { isMember: false, ...result });
       return true;
     }
 

@@ -11,6 +11,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { trackMvpEvent } from "@/lib/mvp-tracker";
+import { getInvitationToken } from "@/lib/invitation-token";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -35,7 +36,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       const response = await fetch(`/api/auth/${registering ? "register" : "login"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(registering ? { email } : { email, password }),
+        body: JSON.stringify(registering ? { email, invitationToken: getInvitationToken() ?? undefined } : { email, password }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Não foi possível entrar.");
@@ -46,7 +47,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       }
       const params = new URLSearchParams(window.location.search);
       const next = params.get("next");
-      router.replace(next?.startsWith("/") && !next.startsWith("//") ? next : "/feed");
+      router.replace(next?.startsWith("/") && !next.startsWith("//") ? next : getInvitationToken() ? "/convite" : "/feed");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Tente novamente.");
     } finally {
