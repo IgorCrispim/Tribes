@@ -1,9 +1,9 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { SocialHeader } from "@/components/social/social-header";
+import { TribesMark } from "@/components/tribes/tribes-mark";
 import { Button } from "@/components/ui/button";
 
 const MOBILE_NAVIGATION_PATHS = ["/feed", "/tribos", "/minhas-tribos", "/mensagens", "/eventos", "/perfil"];
@@ -44,7 +44,7 @@ export function useCurrentUser() {
 export function AuthLoadingState() {
   return (
     <div className="flex min-h-screen items-center justify-center text-primary">
-      <Image src="/tribes-emblem.png" alt="Carregando Tribes" width={32} height={32} className="size-8 animate-pulse object-contain" loading="eager" />
+      <TribesMark alt="Carregando Tribes" className="size-8 animate-pulse" priority />
     </div>
   );
 }

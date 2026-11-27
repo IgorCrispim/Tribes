@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, CalendarDays, Compass, Flame, LogOut, MessageCircle, UserRound, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { TribesLogo } from "@/components/tribes/tribes-logo";
 import type { CurrentUser } from "@/components/social/auth-guard";
 import { UserAvatar } from "@/components/social/user-avatar";
 
@@ -61,9 +61,7 @@ export function SocialHeader({ user }: { user: CurrentUser }) {
     <header className="sticky top-0 z-40 border-b border-border/80 bg-background/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-6 sm:py-3">
         <Link href="/feed" className="flex shrink-0 items-center gap-2 font-heading text-lg font-extrabold">
-          <span className="relative h-10 w-[7.25rem] overflow-hidden">
-            <Image src="/tribes-logo.png" alt="Tribes — Comunidade e Natureza" fill sizes="116px" className="object-cover object-[center_40%]" />
-          </span>
+          <TribesLogo />
         </Link>
 
         <nav aria-label="Navegação principal" className="hidden min-w-0 flex-1 items-center justify-center gap-1 lg:flex xl:gap-2">

@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { TribesMark } from "@/components/tribes/tribes-mark";
 
 export function ForgotPasswordForm() {
   const [email, setEmail] = useState("");
@@ -40,7 +40,7 @@ export function ForgotPasswordForm() {
       <ThemeToggle className="absolute right-4 top-4" />
       <section className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-lg sm:p-8">
         <Link href="/" className="flex items-center gap-2 font-heading text-lg font-extrabold">
-          <Image src="/tribes-emblem.png" alt="" width={36} height={36} className="size-9 rounded-full object-contain" />
+          <TribesMark alt="" className="size-9" />
           tribes
         </Link>
         <h1 className="mt-8 font-heading text-2xl font-extrabold">

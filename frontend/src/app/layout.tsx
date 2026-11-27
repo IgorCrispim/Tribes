@@ -27,15 +27,15 @@ export const metadata: Metadata = {
   description:
     "A rede social feita para conectar pessoas pelos mesmos hobbies e organizar encontros reais, presenciais ou online, sem bagunça no chat.",
   icons: {
-    icon: "/tribes-emblem.png",
-    shortcut: "/tribes-emblem.png",
-    apple: "/tribes-emblem.png",
+    icon: "/tribes-mark-light.png",
+    shortcut: "/tribes-mark-light.png",
+    apple: "/tribes-mark-light.png",
   },
   openGraph: {
     title: "Tribes",
     description:
       "Descubra comunidades perto de você, entre sem timidez e organize encontros com lista real de presença.",
-    images: [{ url: "/tribes-logo.png", width: 456, height: 169, alt: "Tribes" }],
+    images: [{ url: "/tribes-logo-light.png", width: 1255, height: 472, alt: "Tribes" }],
     locale: "pt_BR",
     type: "website",
   },

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { TribesMark } from "@/components/tribes/tribes-mark";
 import { trackMvpEvent } from "@/lib/mvp-tracker";
 import { getInvitationToken } from "@/lib/invitation-token";
 
@@ -64,7 +64,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           Voltar
         </Link>
         <Link href="/" className="flex items-center gap-2 font-heading text-lg font-extrabold">
-          <Image src="/tribes-emblem.png" alt="" width={36} height={36} className="size-9 rounded-full object-contain" />
+          <TribesMark alt="" className="size-9" />
           tribes
         </Link>
         <h1 className="mt-8 font-heading text-2xl font-extrabold">

@@ -3,11 +3,11 @@
 import { Suspense, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { Menu, X, ArrowRight, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import { TribesLogo } from "@/components/tribes/tribes-logo";
 
 const NAV_LINKS = [
   { href: "/explorar", label: "Explorar tribos" },
@@ -44,9 +44,7 @@ function NavbarContent() {
     <header className="sticky top-0 z-40 w-full border-b border-border/70 bg-background/90 backdrop-blur-md">
       <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
         <Link href="/" aria-label="Tribes — página inicial" className="flex shrink-0 items-center">
-          <span className="relative h-10 w-[7.25rem] shrink-0 overflow-hidden">
-            <Image src="/tribes-logo.png" alt="Tribes — Comunidade e Natureza" fill priority sizes="116px" className="object-cover object-[center_40%]" />
-          </span>
+          <TribesLogo alt="" priority />
         </Link>
         <nav aria-label="Navegação principal" className="hidden items-center gap-6 lg:flex">
           {NAV_LINKS.map((item) => (
@@ -108,9 +106,7 @@ function NavbarFallback() {
       aria-hidden="true"
     >
       <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-        <span className="relative h-10 w-[7.25rem] shrink-0 overflow-hidden">
-          <Image src="/tribes-logo.png" alt="" fill priority sizes="116px" className="object-cover object-[center_40%]" />
-        </span>
+        <TribesLogo alt="" priority />
         <div className="size-10 animate-pulse rounded-xl bg-muted lg:hidden" />
         <div className="hidden h-9 w-40 animate-pulse rounded-full bg-muted lg:block" />
       </div>
