@@ -28,6 +28,7 @@ services:
       NODE_ENV: development
       PORT: 4000
       DATABASE_URL: postgres://tribes:tribes_dev_password@database:5432/tribes
+      MIGRATION_DATABASE_URL: postgres://tribes:tribes_dev_password@database:5432/tribes
       FRONTEND_URL: http://localhost:4317
       METRICS_ADMIN_EMAILS: ${METRICS_ADMIN_EMAILS:-}
       MAPS_API: ${MAPS_API:-}

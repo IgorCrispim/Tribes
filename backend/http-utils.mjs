@@ -20,6 +20,7 @@ export async function readJson(request, {
     if (size > maxSize) {
       const error = new Error("Payload muito grande.");
       error.statusCode = 413;
+      error.code = "invalid_payload";
       throw error;
     }
     chunks.push(chunk);

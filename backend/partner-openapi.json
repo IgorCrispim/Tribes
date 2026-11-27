@@ -1,0 +1,377 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Tribes Partner API",
+    "version": "1.0.0",
+    "description": "API server-to-server de parceiros e rotas de consentimento social separadas. Recursos provisionais permanecem fora do feed social; vínculos sociais exigem sessão de moderador."
+  },
+  "servers": [{ "url": "/", "description": "Host atual da instalação Tribes" }],
+  "paths": {
+    "/api/v1/partners/status": {
+      "get": {
+        "operationId": "getPartnerIntegrationStatus",
+        "summary": "Consultar status da integração autenticada",
+        "description": "Exige status:read. Não aceita query parameters ou Origin de navegador. Empresa e aplicação vêm da credencial. Limite persistente por aplicação; respostas não são cacheáveis.",
+        "security": [{ "partnerApiKey": [] }],
+        "responses": {
+          "200": {
+            "description": "Integração ativa",
+            "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Status" } } }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/RateLimited" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/v1/partners/tribes": {
+      "post": {
+        "operationId": "createPartnerTribe",
+        "summary": "Criar ou recuperar tribo provisional",
+        "description": "Exige organizers:write. A repetição do externalTribeId com os mesmos dados retorna a tribo existente; dados diferentes retornam 409. Não aceita referência a tribo social. Tribos sociais existentes só podem ser usadas depois de vínculo autorizado por operação confiável.",
+        "security": [{ "partnerApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerTribeInput" } } } },
+        "responses": {
+          "201": { "description": "Tribo provisional criada", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerTribeResult" } } } },
+          "200": { "description": "Tribo existente recuperada idempotentemente", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerTribeResult" } } } },
+          "400": { "$ref": "#/components/responses/Error" }, "413": { "$ref": "#/components/responses/PayloadTooLarge" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" }
+        }
+      }
+    },
+    "/api/v1/partners/tribes/{externalTribeId}": {
+      "parameters": [{ "$ref": "#/components/parameters/ExternalTribeId" }],
+      "get": {
+        "operationId": "getPartnerTribe", "summary": "Consultar tribo da aplicação",
+        "security": [{ "partnerApiKey": [] }],
+        "responses": { "200": { "description": "Tribo", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["tribe"], "properties": { "tribe": { "$ref": "#/components/schemas/PartnerTribe" } } } } } }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" } }
+      },
+      "patch": {
+        "operationId": "updatePartnerTribe", "summary": "Atualizar tribo provisional",
+        "description": "Exige organizers:write e recebe a representação editável completa. Uma tribo social vinculada é somente leitura pela API do parceiro.",
+        "security": [{ "partnerApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerTribeUpdate" } } } },
+        "responses": { "200": { "description": "Tribo atualizada", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["tribe"], "properties": { "tribe": { "$ref": "#/components/schemas/PartnerTribe" } } } } } }, "400": { "$ref": "#/components/responses/Error" }, "413": { "$ref": "#/components/responses/PayloadTooLarge" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" } }
+      }
+    },
+    "/api/v1/partners/tribes/{externalTribeId}/organizer-grants": {
+      "parameters": [{ "$ref": "#/components/parameters/ExternalTribeId" }],
+      "get": {
+        "operationId": "listPartnerOrganizerGrants",
+        "summary": "Consultar organizadores humanos designados",
+        "description": "Exige organizer-grants:read. Retorna somente grants ativos do recurso pertencente à aplicação autenticada. beneficiaryUserId é um identificador pessoal estável; só é retornado enquanto o vínculo social estiver ativo e o beneficiário continuar membro ativo da tribo. Sem vínculo, membership ativa ou grants ativos, a lista é vazia. Não retorna nome nem e-mail. organizer.manage somente designa o organizador humano para a integração; não concede permissões de escrita ou ações sociais na Tribes.",
+        "security": [{ "partnerApiKey": [] }],
+        "responses": {
+          "200": { "description": "Designações ativas autorizadas", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerOrganizerGrantList" } } } },
+          "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" },
+          "405": { "$ref": "#/components/responses/MethodNotAllowed" }
+        }
+      }
+    },
+    "/api/v1/partners/events": {
+      "post": {
+        "operationId": "createPartnerEvent", "summary": "Criar ou recuperar evento provisional",
+        "description": "Exige events:write. A unicidade PostgreSQL em (partner_id, external_event_id) torna a operação idempotente sob concorrência. Mesma identidade e dados equivalentes retornam o recurso; payload incompatível retorna 409. A aplicação criadora é proprietária operacional.",
+        "security": [{ "partnerApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerEventInput" } } } },
+        "responses": { "201": { "description": "Evento criado", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerEventResult" } } } }, "200": { "description": "Evento existente recuperado idempotentemente", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerEventResult" } } } }, "400": { "$ref": "#/components/responses/Error" }, "413": { "$ref": "#/components/responses/PayloadTooLarge" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" } }
+      }
+    },
+    "/api/v1/partners/events/{externalEventId}": {
+      "parameters": [{ "$ref": "#/components/parameters/ExternalEventId" }],
+      "get": {
+        "operationId": "getPartnerEvent", "summary": "Consultar evento da aplicação",
+        "security": [{ "partnerApiKey": [] }],
+        "responses": { "200": { "description": "Evento", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["event"], "properties": { "event": { "$ref": "#/components/schemas/PartnerEvent" } } } } } }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" } }
+      },
+      "patch": {
+        "operationId": "updatePartnerEvent", "summary": "Atualizar evento provisional",
+        "description": "Exige events:write e recebe a representação editável completa; externalEventId é imutável. Se houver participantes, startsAt/endsAt podem ser remarcados antes do término, mas ficam bloqueados após o fim; o marco de retenção é imutável. A aplicação criadora é a única que pode consultar ou alterar o recurso.",
+        "security": [{ "partnerApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerEventUpdate" } } } },
+        "responses": { "200": { "description": "Evento atualizado", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["event"], "properties": { "event": { "$ref": "#/components/schemas/PartnerEvent" } } } } } }, "400": { "$ref": "#/components/responses/Error" }, "413": { "$ref": "#/components/responses/PayloadTooLarge" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" } }
+      }
+    },
+    "/api/v1/partners/events/{externalEventId}/cancel": {
+      "parameters": [{ "$ref": "#/components/parameters/ExternalEventId" }],
+      "post": {
+        "operationId": "cancelPartnerEvent",
+        "summary": "Cancelar terminalmente um evento provisional",
+        "description": "Exige events:write. A repetição é idempotente. Impede novos registros, resgates e entradas futuras baseadas no evento; não remove memberships existentes nem altera o feed social.",
+        "security": [{ "partnerApiKey": [] }],
+        "responses": { "200": { "description": "Evento cancelado ou já cancelado", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerEventCancellation" } } } }, "400": { "$ref": "#/components/responses/Error", "description": "`invalid_payload`: parâmetros de consulta não são aceitos." }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "429": { "$ref": "#/components/responses/RateLimited" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" }, "503": { "$ref": "#/components/responses/Error" } }
+      }
+    },
+    "/api/v1/partners/events/{externalEventId}/participants/{externalParticipantId}": {
+      "parameters": [{ "$ref": "#/components/parameters/ExternalEventId" }, { "$ref": "#/components/parameters/ExternalParticipantId" }],
+      "post": {
+        "operationId": "registerPartnerEventParticipant",
+        "summary": "Criar ou recuperar inscrição/ingresso",
+        "description": "Exige participants:write. A operação é idempotente pela identidade externa. claimToken deve conter 32 bytes aleatórios em base64url, gerados com CSPRNG pelo parceiro; a Tribes armazena somente SHA-256. Não envie nome, e-mail ou userId.",
+        "security": [{ "partnerApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantInput" } } } },
+        "responses": { "201": { "description": "Registro criado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantResult" } } } }, "200": { "description": "Registro idempotente existente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantResult" } } } }, "400": { "$ref": "#/components/responses/Error" }, "413": { "$ref": "#/components/responses/PayloadTooLarge" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" } }
+      },
+      "delete": {
+        "operationId": "cancelPartnerEventParticipant",
+        "summary": "Cancelar um ingresso/registro",
+        "description": "Exige participants:write. A ação é terminal e idempotente. Não remove uma membership social já existente.",
+        "security": [{ "partnerApiKey": [] }],
+        "responses": { "200": { "description": "Registro cancelado ou já cancelado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantCancellation" } } } }, "400": { "$ref": "#/components/responses/Error" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" } }
+      }
+    },
+    "/api/v1/partners/events/{externalEventId}/participants/{externalParticipantId}/claim-token": {
+      "parameters": [{ "$ref": "#/components/parameters/ExternalEventId" }, { "$ref": "#/components/parameters/ExternalParticipantId" }],
+      "put": {
+        "operationId": "rotatePartnerParticipantClaimToken",
+        "summary": "Renovar segredo de resgate",
+        "description": "Exige participants:write. O novo segredo substitui o anterior e vale sete dias. Repetir o mesmo segredo é idempotente; segredo usado, participante cancelado ou evento cancelado não pode ser renovado.",
+        "security": [{ "partnerApiKey": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantInput" } } } },
+        "responses": { "200": { "description": "Segredo aplicado idempotentemente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantClaimToken" } } } }, "400": { "$ref": "#/components/responses/Error" }, "413": { "$ref": "#/components/responses/PayloadTooLarge" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "$ref": "#/components/responses/Error" }, "404": { "$ref": "#/components/responses/Error" }, "409": { "$ref": "#/components/responses/Error" }, "429": { "$ref": "#/components/responses/RateLimited" }, "503": { "$ref": "#/components/responses/Error" }, "405": { "$ref": "#/components/responses/MethodNotAllowed" } }
+      }
+    },
+    "/api/partner-participants/preview": {
+      "post": {
+        "operationId": "previewPartnerParticipantClaim",
+        "summary": "Pré-visualizar resgate autenticado",
+        "description": "Exige sessão social. O segredo não é consumido nesta etapa. A prévia mostra parceiro, evento e tribo e cria um desafio de cinco minutos vinculado à conta e à versão/hash do segredo validado; a confirmação revalida tudo dentro da transação. Rotacionar o segredo invalida desafios pendentes da versão anterior.",
+        "security": [{ "socialSession": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantClaimPreviewInput" } } } },
+        "responses": { "200": { "description": "Prévia e desafio", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantClaimPreview" } } } }, "400": { "$ref": "#/components/responses/SocialError" }, "401": { "$ref": "#/components/responses/SocialError" }, "404": { "$ref": "#/components/responses/SocialError" }, "409": { "$ref": "#/components/responses/SocialError" }, "413": { "$ref": "#/components/responses/SocialPayloadTooLarge" }, "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" } }
+      }
+    },
+    "/api/partner-participants/confirm": {
+      "post": {
+        "operationId": "confirmPartnerParticipantClaim",
+        "summary": "Confirmar associação do ingresso à conta",
+        "description": "Exige a mesma sessão social da prévia. O segredo de resgate é consumido atomicamente apenas quando a associação é confirmada; desafios associados a uma versão anterior após rotação são rejeitados. Repetição do mesmo desafio pela mesma conta retorna o resultado original; outra conta não pode reutilizá-lo. Não cria membership.",
+        "security": [{ "socialSession": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantClaimConfirmInput" } } } },
+        "responses": { "200": { "description": "Associação criada ou confirmação idempotente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantClaimResult" } } } }, "400": { "$ref": "#/components/responses/SocialError" }, "401": { "$ref": "#/components/responses/SocialError" }, "404": { "$ref": "#/components/responses/SocialError" }, "409": { "$ref": "#/components/responses/SocialError" }, "413": { "$ref": "#/components/responses/SocialPayloadTooLarge" }, "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" } }
+      }
+    },
+    "/api/me/partner-participants": {
+      "get": {
+        "operationId": "listMyPartnerParticipants", "summary": "Listar ingressos vinculados à própria conta", "security": [{ "socialSession": [] }],
+        "responses": { "200": { "description": "Ingressos da conta autenticada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MyPartnerParticipants" } } } }, "400": { "$ref": "#/components/responses/SocialError" }, "401": { "$ref": "#/components/responses/SocialError" }, "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" } }
+      }
+    },
+    "/api/me/partner-participants/{participantId}": {
+      "parameters": [{ "$ref": "#/components/parameters/ParticipantId" }],
+      "delete": {
+        "operationId": "unlinkMyPartnerParticipant", "summary": "Desvincular ingresso da própria conta", "description": "A desvinculação é terminal para este ciclo: o mesmo ingresso não pode ser associado novamente, inclusive ao confirmar de novo o desafio idempotente. Não cancela o ingresso no parceiro nem altera a membership social.", "security": [{ "socialSession": [] }],
+        "responses": { "200": { "description": "Associação removida ou já removida", "content": { "application/json": { "schema": { "type": "object", "required": ["unlinked"], "properties": { "unlinked": { "type": "boolean" } } } } } }, "400": { "$ref": "#/components/responses/SocialError" }, "401": { "$ref": "#/components/responses/SocialError" }, "404": { "$ref": "#/components/responses/SocialError" }, "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" } }
+      }
+    },
+    "/api/me/partner-participants/{participantId}/join-tribe": {
+      "parameters": [{ "$ref": "#/components/parameters/ParticipantId" }],
+      "post": {
+        "operationId": "joinPartnerParticipantTribe", "summary": "Entrar explicitamente na tribo associada", "description": "Exige sessão social, ingresso vinculado e ciclo de vínculo ainda ativo. Aplica as regras atuais de acesso, incluindo senha de tribo privada. Repetições não criam memberships duplicadas.", "security": [{ "socialSession": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "properties": { "password": { "type": "string", "maxLength": 128 } } } } } },
+        "responses": { "200": { "description": "Entrada realizada ou membership existente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PartnerParticipantJoinResult" } } } }, "400": { "$ref": "#/components/responses/SocialError" }, "401": { "$ref": "#/components/responses/SocialError" }, "403": { "$ref": "#/components/responses/SocialError" }, "404": { "$ref": "#/components/responses/SocialError" }, "409": { "$ref": "#/components/responses/SocialError" }, "413": { "$ref": "#/components/responses/SocialPayloadTooLarge" }, "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" } }
+      }
+    },
+    "/api/tribes/{tribeId}/partner-links": {
+      "parameters": [{ "$ref": "#/components/parameters/SocialTribeId" }],
+      "get": {
+        "operationId": "listSocialTribePartnerLinks",
+        "summary": "Listar histórico de vínculos da tribo",
+        "description": "Exige sessão social válida, associação ativa, moderator_id igual ao usuário da sessão e parceiro/aplicação ativos. API keys de parceiros não autenticam esta operação; históricos de integrações desativadas não são retornados.",
+        "security": [{ "socialSession": [] }],
+        "responses": {
+          "200": { "description": "Histórico visível ao moderador atual", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerLinkList" } } } },
+          "401": { "$ref": "#/components/responses/SocialError" }, "404": { "$ref": "#/components/responses/SocialError" },
+          "409": { "$ref": "#/components/responses/SocialError" },
+          "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" }
+        }
+      }
+    },
+    "/api/tribes/{tribeId}/partner-links/preview": {
+      "parameters": [{ "$ref": "#/components/parameters/SocialTribeId" }],
+      "post": {
+        "operationId": "previewSocialPartnerLink",
+        "summary": "Pré-visualizar vínculo de parceiro",
+        "description": "Exige sessão social, moderador atual e associação ativa. Resolve parceiro, aplicação e recurso provisional no banco e cria token curto de uso único vinculado ao usuário, tribo e IDs apresentados. Não altera o vínculo. Não retorna metadados sociais ao parceiro.",
+        "security": [{ "socialSession": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerLinkPreviewInput" } } } },
+        "responses": {
+          "200": { "description": "Prévia e token de confirmação de cinco minutos", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerLinkPreview" } } } },
+          "400": { "$ref": "#/components/responses/SocialError" }, "401": { "$ref": "#/components/responses/SocialError" },
+          "413": { "$ref": "#/components/responses/SocialPayloadTooLarge" },
+          "404": { "$ref": "#/components/responses/SocialError" }, "409": { "$ref": "#/components/responses/SocialError" },
+          "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" }
+        }
+      }
+    },
+    "/api/tribes/{tribeId}/partner-links/confirm": {
+      "parameters": [{ "$ref": "#/components/parameters/SocialTribeId" }],
+      "post": {
+        "operationId": "confirmSocialPartnerLink",
+        "summary": "Confirmar vínculo após consentimento do moderador",
+        "description": "Exige sessão social do mesmo usuário/moderador que solicitou a prévia. Revalida parceiro, aplicação, recurso, tribo, privacidade e estado. Para tribos privadas, confirmPrivateSharing deve ser true; esse campo é somente uma confirmação adicional, não uma prova de identidade.",
+        "security": [{ "socialSession": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerLinkConfirmInput" } } } },
+        "responses": {
+          "201": { "description": "Vínculo autorizado e auditado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerLinkConfirmed" } } } },
+          "400": { "$ref": "#/components/responses/SocialError" }, "401": { "$ref": "#/components/responses/SocialError" },
+          "413": { "$ref": "#/components/responses/SocialPayloadTooLarge" },
+          "404": { "$ref": "#/components/responses/SocialError" }, "409": { "$ref": "#/components/responses/SocialError" },
+          "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" }
+        }
+      }
+    },
+    "/api/tribes/{tribeId}/partner-links/{applicationId}/{externalTribeId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/SocialTribeId" },
+        { "$ref": "#/components/parameters/SocialApplicationId" },
+        { "$ref": "#/components/parameters/ExternalTribeId" }
+      ],
+      "delete": {
+        "operationId": "revokeSocialPartnerLink",
+        "summary": "Revogar vínculo autorizado",
+        "description": "Exige sessão social, moderador atual e associação ativa. Revoga apenas o vínculo da aplicação/resource indicado. Repetições não criam auditorias duplicadas; eventos e recursos do parceiro permanecem provisionais.",
+        "security": [{ "socialSession": [] }],
+        "responses": {
+          "200": { "description": "Vínculo revogado ou já inativo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerLinkRevocation" } } } },
+          "401": { "$ref": "#/components/responses/SocialError" }, "404": { "$ref": "#/components/responses/SocialError" },
+          "409": { "$ref": "#/components/responses/SocialError" }, "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" },
+          "429": { "$ref": "#/components/responses/SocialRateLimited" }
+        }
+      }
+    },
+    "/api/tribes/{tribeId}/partner-grants": {
+      "parameters": [{ "$ref": "#/components/parameters/SocialTribeId" }],
+      "get": {
+        "operationId": "listSocialTribePartnerGrants",
+        "summary": "Listar grants humanos e histórico",
+        "description": "Exige sessão social válida, membership ativa e moderator_id igual ao usuário da sessão. Retorna beneficiários e histórico apenas ao moderador atual. O histórico permanece disponível para revogação mesmo com aplicação desativada ou vínculo social revogado.",
+        "security": [{ "socialSession": [] }],
+        "responses": {
+          "200": { "description": "Grants e ciclos anteriores", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerGrantList" } } } },
+          "401": { "$ref": "#/components/responses/SocialError" }, "404": { "$ref": "#/components/responses/SocialError" },
+          "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" }
+        }
+      },
+      "post": {
+        "operationId": "grantSocialTribePartnerOrganizer",
+        "summary": "Designar membro como organizador humano",
+        "description": "Concede somente organizer.manage para um recurso provisional vinculado à tribo. O backend deriva o concedente da sessão e valida aplicação, recurso, vínculo, usuário beneficiário e membership ativa dentro da transação. beneficiaryUserId é somente um seletor e não prova identidade ou autorização. A repetição de uma concessão ativa idêntica é idempotente.",
+        "security": [{ "socialSession": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerGrantInput" } } } },
+        "responses": {
+          "201": { "description": "Grant criado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerGrantResult" } } } },
+          "200": { "description": "Grant ativo recuperado idempotentemente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerGrantResult" } } } },
+          "400": { "$ref": "#/components/responses/SocialError" }, "401": { "$ref": "#/components/responses/SocialError" },
+          "413": { "$ref": "#/components/responses/SocialPayloadTooLarge" },
+          "404": { "$ref": "#/components/responses/SocialError" }, "409": { "$ref": "#/components/responses/SocialError" },
+          "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" }
+        }
+      }
+    },
+    "/api/tribes/{tribeId}/partner-grants/{grantId}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/SocialTribeId" },
+        { "name": "grantId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "delete": {
+        "operationId": "revokeSocialTribePartnerOrganizerGrant",
+        "summary": "Revogar grant humano",
+        "description": "Exige sessão social, membership ativa e moderação atual da tribo. A revogação permanece permitida com aplicação desativada ou escopo organizer-grants:read removido. Não altera o vínculo social. Repetições são idempotentes.",
+        "security": [{ "socialSession": [] }],
+        "responses": {
+          "200": { "description": "Grant revogado ou já inativo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialPartnerGrantRevocation" } } } },
+          "401": { "$ref": "#/components/responses/SocialError" }, "404": { "$ref": "#/components/responses/SocialError" },
+          "405": { "$ref": "#/components/responses/SocialMethodNotAllowed" }, "429": { "$ref": "#/components/responses/SocialRateLimited" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "partnerApiKey": { "type": "http", "scheme": "bearer", "bearerFormat": "tribes_pk_<uuid>.<secret>", "description": "Chave opaca emitida no backend. Guardar somente no servidor parceiro. O banco armazena SHA-256. Escopos efetivos são a interseção dos escopos da chave e da aplicação." },
+      "socialSession": { "type": "apiKey", "in": "cookie", "name": "tribes_session", "description": "Cookie HttpOnly tribes_session emitido após autenticação social. O backend resolve o usuário pela sessão e valida, em cada operação, a titularidade do recurso e as regras de autorização aplicáveis (por exemplo, moderação, membership ativa ou titularidade do ingresso)." }
+    },
+    "headers": {
+      "RequestId": { "description": "Identificador gerado pelo backend", "schema": { "type": "string", "format": "uuid" } }
+    },
+    "parameters": {
+      "ExternalTribeId": { "name": "externalTribeId", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 128 } },
+      "ExternalEventId": { "name": "externalEventId", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 128 } },
+      "ExternalParticipantId": { "name": "externalParticipantId", "in": "path", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 128 } },
+      "SocialTribeId": { "name": "tribeId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "ParticipantId": { "name": "participantId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "SocialApplicationId": { "name": "applicationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+    },
+    "responses": {
+      "Error": { "description": "Erro; consultar code para identificar o motivo", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Unauthorized": { "description": "Credencial ausente, inválida, expirada, revogada ou integração inativa", "headers": { "WWW-Authenticate": { "schema": { "type": "string", "const": "Bearer" } }, "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "RateLimited": { "description": "Limite da aplicação ou de tentativas de autenticação excedido", "headers": { "Retry-After": { "description": "Segundos até nova tentativa", "schema": { "type": "string", "pattern": "^[0-9]+$" } }, "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "MethodNotAllowed": { "description": "Método não permitido", "headers": { "Allow": { "schema": { "type": "string" } }, "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "SocialError": { "description": "Erro de rota autenticada pela sessão social", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialError" } } } },
+      "SocialPayloadTooLarge": { "description": "Corpo JSON acima do limite específico da rota; a resposta usa `code: invalid_payload`.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialError" } } } },
+      "SocialMethodNotAllowed": { "description": "Método não permitido", "headers": { "Allow": { "schema": { "type": "string" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialError" } } } },
+      "SocialRateLimited": { "description": "Limite de requisições sociais excedido", "headers": { "Retry-After": { "schema": { "type": "string", "pattern": "^[0-9]+$" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SocialError" } } } },
+      "PayloadTooLarge": { "description": "Corpo JSON acima do limite de 16 KiB; a resposta usa `code: invalid_payload`.", "headers": { "X-Request-Id": { "$ref": "#/components/headers/RequestId" } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    },
+    "schemas": {
+      "Scope": { "type": "string", "enum": ["status:read", "events:read", "events:write", "organizers:write", "moderators:read", "moderators:write", "participants:write", "invitations:write", "organizer-grants:read"] },
+      "Error": { "type": "object", "additionalProperties": false, "required": ["error", "code", "requestId"], "properties": { "error": { "type": "string" }, "code": { "type": "string", "enum": ["invalid_payload", "invalid_credentials", "insufficient_scope", "server_to_server_only", "route_not_found", "resource_not_found", "participant_not_found", "identity_conflict", "linked_tribe_read_only", "event_has_participants", "event_schedule_locked", "event_cancelled", "event_not_active", "participant_cancelled", "participant_already_claimed", "claim_token_conflict", "method_not_allowed", "rate_limit_exceeded", "authentication_rate_limit", "partner_api_unavailable"] }, "requestId": { "type": "string", "format": "uuid" } } },
+      "SocialError": { "type": "object", "additionalProperties": false, "required": ["error", "code"], "properties": { "error": { "type": "string" }, "code": { "type": "string", "enum": ["social_session_required", "invalid_payload", "tribe_not_found", "resource_not_found", "beneficiary_not_active_member", "partner_application_not_found", "partner_application_disabled", "partner_application_scope_missing", "social_link_exists", "social_link_preview_expired", "social_link_preview_changed", "private_tribe_consent_required", "social_link_integrity_error", "participant_not_found", "participant_claim_invalid", "participant_preview_expired", "participant_preview_changed", "participant_already_claimed", "participant_not_eligible", "private_tribe_access_denied", "method_not_allowed", "rate_limit_exceeded", "social_link_operation_failed", "social_partner_operation_failed"] } } },
+      "SocialPartnerLinkPreviewInput": { "type": "object", "additionalProperties": false, "required": ["applicationId", "externalTribeId"], "properties": { "applicationId": { "type": "string", "format": "uuid" }, "externalTribeId": { "type": "string", "minLength": 1, "maxLength": 128 } } },
+      "SocialPartnerLinkPreview": { "type": "object", "additionalProperties": false, "required": ["confirmationToken", "expiresAt", "partner", "application", "partnerTribe", "socialTribe"], "properties": { "confirmationToken": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }, "expiresAt": { "type": "string", "format": "date-time" }, "partner": { "type": "object", "required": ["id", "slug", "name"], "properties": { "id": { "type": "string", "format": "uuid" }, "slug": { "type": "string" }, "name": { "type": "string" } } }, "application": { "type": "object", "required": ["id", "slug", "name"], "properties": { "id": { "type": "string", "format": "uuid" }, "slug": { "type": "string" }, "name": { "type": "string" } } }, "partnerTribe": { "type": "object", "required": ["id", "externalTribeId", "name"], "properties": { "id": { "type": "string", "format": "uuid" }, "externalTribeId": { "type": "string" }, "name": { "type": "string" } } }, "socialTribe": { "type": "object", "required": ["id", "name", "isPrivate"], "properties": { "id": { "type": "string", "format": "uuid" }, "name": { "type": "string" }, "isPrivate": { "type": "boolean" } } } } },
+      "SocialPartnerLinkConfirmInput": { "type": "object", "additionalProperties": false, "required": ["confirmationToken"], "properties": { "confirmationToken": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }, "confirmPrivateSharing": { "type": "boolean" } } },
+      "SocialPartnerLinkConfirmed": { "type": "object", "required": ["link"], "properties": { "link": { "type": "object", "required": ["id", "socialTribeId", "partnerTribeId", "externalTribeId", "authorizedBy", "authorizedAt", "privateAtAuthorization", "privateDataConsent"], "properties": { "id": { "type": "string", "format": "uuid" }, "socialTribeId": { "type": "string", "format": "uuid" }, "partnerTribeId": { "type": "string", "format": "uuid" }, "externalTribeId": { "type": "string" }, "authorizedBy": { "type": "string", "format": "uuid" }, "authorizedAt": { "type": "string", "format": "date-time" }, "privateAtAuthorization": { "type": "boolean" }, "privateDataConsent": { "type": "boolean" } } } } },
+      "SocialPartnerLink": { "type": "object", "required": ["id", "partnerId", "applicationId", "partnerTribeId", "externalTribeId", "partnerSlug", "partnerName", "applicationSlug", "applicationName", "authorizedBy", "authorizedByName", "authorizedAt", "privateAtAuthorization", "privateDataConsent", "revokedBy", "revokedByName", "revokedAt", "revocationSource", "active"], "properties": { "id": { "type": "string", "format": "uuid" }, "partnerId": { "type": "string", "format": "uuid" }, "applicationId": { "type": "string", "format": "uuid" }, "partnerTribeId": { "type": "string", "format": "uuid" }, "externalTribeId": { "type": "string" }, "partnerSlug": { "type": "string" }, "partnerName": { "type": "string" }, "applicationSlug": { "type": "string" }, "applicationName": { "type": "string" }, "authorizedBy": { "type": "string", "format": "uuid" }, "authorizedByName": { "type": "string" }, "authorizedAt": { "type": "string", "format": "date-time" }, "privateAtAuthorization": { "type": "boolean" }, "privateDataConsent": { "type": "boolean" }, "revokedBy": { "type": ["string", "null"], "format": "uuid" }, "revokedByName": { "type": ["string", "null"] }, "revokedAt": { "type": ["string", "null"], "format": "date-time" }, "revocationSource": { "type": ["string", "null"], "enum": ["moderator", "tribe_deleted", null] }, "active": { "type": "boolean" } } },
+      "SocialPartnerLinkList": { "type": "object", "required": ["links"], "properties": { "links": { "type": "array", "items": { "$ref": "#/components/schemas/SocialPartnerLink" } } } },
+      "SocialPartnerLinkRevocation": { "type": "object", "required": ["revoked"], "properties": { "revoked": { "type": "boolean" }, "revokedBy": { "type": "string", "format": "uuid" }, "revokedAt": { "type": "string", "format": "date-time" } } },
+      "SocialPartnerGrantInput": { "type": "object", "additionalProperties": false, "required": ["applicationId", "externalTribeId", "beneficiaryUserId"], "properties": { "applicationId": { "type": "string", "format": "uuid" }, "externalTribeId": { "type": "string", "minLength": 1, "maxLength": 128 }, "beneficiaryUserId": { "type": "string", "format": "uuid", "description": "Somente seletor. O servidor valida a existência e membership ativa; não identifica ou autentica o concedente." } } },
+      "SocialPartnerGrant": { "type": "object", "additionalProperties": false, "required": ["id", "partnerId", "applicationId", "partnerTribeId", "externalTribeId", "socialTribeId", "beneficiaryUserId", "capability", "grantedBy", "grantedAt", "revokedBy", "revokedAt", "revocationSource", "active"], "properties": { "id": { "type": "string", "format": "uuid" }, "partnerId": { "type": "string", "format": "uuid" }, "applicationId": { "type": "string", "format": "uuid" }, "partnerTribeId": { "type": "string", "format": "uuid" }, "externalTribeId": { "type": "string" }, "socialTribeId": { "type": "string", "format": "uuid" }, "beneficiaryUserId": { "type": "string", "format": "uuid" }, "capability": { "type": "string", "const": "organizer.manage", "description": "Somente designação consultável pela integração; não concede escrita nem ações sociais." }, "grantedBy": { "type": "string", "format": "uuid" }, "grantedAt": { "type": "string", "format": "date-time" }, "revokedBy": { "type": ["string", "null"], "format": "uuid" }, "revokedAt": { "type": ["string", "null"], "format": "date-time" }, "revocationSource": { "type": ["string", "null"], "enum": ["moderator", "membership_ended", "social_tribe_deleted", null] }, "active": { "type": "boolean"} } },
+      "SocialPartnerGrantList": { "type": "object", "required": ["grants"], "properties": { "grants": { "type": "array", "items": { "$ref": "#/components/schemas/SocialPartnerGrant" } } } },
+      "SocialPartnerGrantResult": { "type": "object", "required": ["grant", "created"], "properties": { "grant": { "$ref": "#/components/schemas/SocialPartnerGrant" }, "created": { "type": "boolean" } } },
+      "SocialPartnerGrantRevocation": { "type": "object", "required": ["revoked", "grant"], "properties": { "revoked": { "type": "boolean" }, "grant": { "$ref": "#/components/schemas/SocialPartnerGrant" } } },
+      "PartnerOrganizerGrant": { "type": "object", "additionalProperties": false, "required": ["id", "beneficiaryUserId", "capability", "grantedAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "beneficiaryUserId": { "type": "string", "format": "uuid", "description": "Identificador pessoal estável. Exposto somente enquanto o vínculo social e a membership ativa forem válidos." }, "capability": { "type": "string", "const": "organizer.manage" }, "grantedAt": { "type": "string", "format": "date-time" } } },
+      "PartnerOrganizerGrantList": { "type": "object", "additionalProperties": false, "required": ["grants"], "properties": { "grants": { "type": "array", "items": { "$ref": "#/components/schemas/PartnerOrganizerGrant" } } } },
+      "PartnerTribeInput": { "type": "object", "additionalProperties": false, "required": ["externalTribeId", "name", "description", "category", "format", "city"], "properties": { "externalTribeId": { "type": "string", "minLength": 1, "maxLength": 128 }, "name": { "type": "string", "minLength": 2, "maxLength": 80 }, "description": { "type": "string", "minLength": 2, "maxLength": 1000 }, "category": { "type": "string", "minLength": 2, "maxLength": 60 }, "format": { "type": "string", "enum": ["Presencial", "Híbrido", "Online"] }, "city": { "type": "string", "minLength": 2, "maxLength": 100 }, "neighborhood": { "type": "string", "maxLength": 100 } } },
+      "PartnerTribeUpdate": { "type": "object", "additionalProperties": false, "required": ["name", "description", "category", "format", "city"], "properties": { "name": { "type": "string", "minLength": 2, "maxLength": 80 }, "description": { "type": "string", "minLength": 2, "maxLength": 1000 }, "category": { "type": "string", "minLength": 2, "maxLength": 60 }, "format": { "type": "string", "enum": ["Presencial", "Híbrido", "Online"] }, "city": { "type": "string", "minLength": 2, "maxLength": 100 }, "neighborhood": { "type": "string", "maxLength": 100 } } },
+      "PartnerTribe": { "type": "object", "additionalProperties": false, "required": ["id", "externalTribeId", "name", "description", "category", "format", "city", "neighborhood", "linkedToSocialTribe", "createdAt", "updatedAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "externalTribeId": { "type": "string" }, "name": { "type": "string" }, "description": { "type": "string" }, "category": { "type": "string" }, "format": { "type": "string" }, "city": { "type": "string" }, "neighborhood": { "type": "string" }, "linkedToSocialTribe": { "type": "boolean" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" } } },
+      "PartnerTribeResult": { "type": "object", "required": ["tribe", "created"], "properties": { "tribe": { "$ref": "#/components/schemas/PartnerTribe" }, "created": { "type": "boolean" } } },
+      "PartnerParticipantInput": { "type": "object", "additionalProperties": false, "required": ["claimToken"], "properties": { "claimToken": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$", "description": "32 bytes gerados por CSPRNG pelo parceiro. A Tribes armazena somente SHA-256; não registrar o valor em logs." } } },
+      "PartnerParticipant": { "type": "object", "additionalProperties": false, "required": ["id", "externalParticipantId", "event", "status", "createdAt", "updatedAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "externalParticipantId": { "type": "string" }, "event": { "type": "object", "required": ["externalEventId", "title"], "properties": { "externalEventId": { "type": "string" }, "title": { "type": "string" } } }, "status": { "type": "string", "enum": ["active", "cancelled"] }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" } } },
+      "PartnerParticipantResult": { "type": "object", "required": ["participant", "created"], "properties": { "participant": { "$ref": "#/components/schemas/PartnerParticipant" }, "created": { "type": "boolean" } } },
+      "PartnerParticipantClaimToken": { "type": "object", "required": ["participantId", "expiresAt", "rotated"], "properties": { "participantId": { "type": "string", "format": "uuid" }, "expiresAt": { "type": "string", "format": "date-time" }, "rotated": { "type": "boolean" } } },
+      "PartnerParticipantCancellation": { "type": "object", "required": ["cancelled", "changed"], "properties": { "cancelled": { "type": "boolean", "const": true }, "changed": { "type": "boolean" } } },
+      "PartnerEventCancellation": { "type": "object", "required": ["cancelled", "changed", "cancelledAt"], "properties": { "cancelled": { "type": "boolean", "const": true }, "changed": { "type": "boolean" }, "cancelledAt": { "type": "string", "format": "date-time" } } },
+      "PartnerParticipantClaimPreviewInput": { "type": "object", "additionalProperties": false, "required": ["claimToken"], "properties": { "claimToken": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" } } },
+      "PartnerParticipantClaimPreview": { "type": "object", "required": ["confirmationToken", "expiresAt", "partner", "application", "participant", "event", "socialTribe"], "properties": { "confirmationToken": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" }, "expiresAt": { "type": "string", "format": "date-time" }, "partner": { "type": "object", "required": ["slug", "name"], "properties": { "slug": { "type": "string" }, "name": { "type": "string" } } }, "application": { "type": "object", "required": ["slug", "name"], "properties": { "slug": { "type": "string" }, "name": { "type": "string" } } }, "participant": { "type": "object", "required": ["id", "externalParticipantId"], "properties": { "id": { "type": "string", "format": "uuid" }, "externalParticipantId": { "type": "string" } } }, "event": { "type": "object", "required": ["externalEventId", "title"], "properties": { "externalEventId": { "type": "string" }, "title": { "type": "string" } } }, "socialTribe": { "type": "object", "required": ["id", "name", "isPrivate"], "properties": { "id": { "type": "string", "format": "uuid" }, "name": { "type": "string" }, "isPrivate": { "type": "boolean" } } } } },
+      "PartnerParticipantClaimConfirmInput": { "type": "object", "additionalProperties": false, "required": ["confirmationToken"], "properties": { "confirmationToken": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" } } },
+      "PartnerParticipantClaimResult": { "type": "object", "required": ["participant", "linked"], "properties": { "participant": { "$ref": "#/components/schemas/PartnerParticipant" }, "linked": { "type": "boolean", "const": true } } },
+      "MyPartnerParticipants": { "type": "object", "required": ["participants"], "properties": { "participants": { "type": "array", "items": { "type": "object", "required": ["id", "event", "partner", "socialTribeName", "status", "socialLinkActive", "isMember", "claimedAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "event": { "type": "object", "required": ["externalEventId", "title"], "properties": { "externalEventId": { "type": "string" }, "title": { "type": "string" } } }, "partner": { "type": "object", "required": ["name", "applicationName"], "properties": { "name": { "type": "string" }, "applicationName": { "type": "string" } } }, "socialTribeName": { "type": "string" }, "status": { "type": "string", "enum": ["active", "cancelled", "event_cancelled"] }, "socialLinkActive": { "type": "boolean" }, "isMember": { "type": "boolean" }, "claimedAt": { "type": "string", "format": "date-time" } } } } } },
+      "PartnerParticipantJoinResult": { "type": "object", "required": ["isMember", "joined", "tribeName"], "properties": { "isMember": { "type": "boolean" }, "joined": { "type": "boolean" }, "tribeName": { "type": "string" } } },
+      "PartnerEventFields": { "type": "object", "required": ["externalTribeId", "title", "description", "startsAt", "location"], "properties": { "externalTribeId": { "type": "string", "minLength": 1, "maxLength": 128 }, "title": { "type": "string", "minLength": 2, "maxLength": 120 }, "description": { "type": "string", "minLength": 1, "maxLength": 5000 }, "startsAt": { "type": "string", "format": "date-time" }, "endsAt": { "type": ["string", "null"], "format": "date-time" }, "location": { "type": "string", "minLength": 2, "maxLength": 240 }, "lat": { "type": ["number", "null"], "minimum": -90, "maximum": 90 }, "lon": { "type": ["number", "null"], "minimum": -180, "maximum": 180 }, "cost": { "type": "string", "maxLength": 100 }, "maxAttendees": { "type": ["integer", "null"], "minimum": 1, "maximum": 10000 } } },
+      "PartnerEventInput": { "type": "object", "allOf": [{ "$ref": "#/components/schemas/PartnerEventFields" }], "required": ["externalEventId"], "properties": { "externalEventId": { "type": "string", "minLength": 1, "maxLength": 128 } }, "unevaluatedProperties": false },
+      "PartnerEventUpdate": { "allOf": [{ "$ref": "#/components/schemas/PartnerEventFields" }], "unevaluatedProperties": false },
+      "PartnerEvent": { "type": "object", "additionalProperties": false, "required": ["id", "externalEventId", "tribe", "title", "description", "startsAt", "endsAt", "location", "lat", "lon", "cost", "maxAttendees", "status", "cancelledAt", "createdAt", "updatedAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "externalEventId": { "type": "string" }, "tribe": { "type": "object", "additionalProperties": false, "required": ["externalTribeId", "name", "linkedToSocialTribe"], "properties": { "externalTribeId": { "type": "string" }, "name": { "type": "string" }, "linkedToSocialTribe": { "type": "boolean" } } }, "title": { "type": "string" }, "description": { "type": "string" }, "startsAt": { "type": "string", "format": "date-time" }, "endsAt": { "type": ["string", "null"], "format": "date-time" }, "location": { "type": "string" }, "lat": { "type": ["number", "null"] }, "lon": { "type": ["number", "null"] }, "cost": { "type": "string" }, "maxAttendees": { "type": ["integer", "null"] }, "status": { "type": "string", "enum": ["active", "cancelled"] }, "cancelledAt": { "type": ["string", "null"], "format": "date-time" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" } } },
+      "PartnerEventResult": { "type": "object", "required": ["event", "created"], "properties": { "event": { "$ref": "#/components/schemas/PartnerEvent" }, "created": { "type": "boolean" } } },
+      "Status": {
+        "type": "object", "additionalProperties": false,
+        "required": ["ok", "apiVersion", "partner", "application", "credential", "scopes"],
+        "properties": {
+          "ok": { "type": "boolean", "const": true },
+          "apiVersion": { "type": "string", "const": "v1" },
+          "partner": { "type": "object", "additionalProperties": false, "required": ["id", "slug", "name", "status", "createdAt", "updatedAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "slug": { "type": "string" }, "name": { "type": "string" }, "status": { "type": "string", "const": "active" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" } } },
+          "application": { "type": "object", "additionalProperties": false, "required": ["id", "slug", "name", "status", "requestsPerMinute"], "properties": { "id": { "type": "string", "format": "uuid" }, "slug": { "type": "string" }, "name": { "type": "string" }, "status": { "type": "string", "const": "active" }, "requestsPerMinute": { "type": "integer", "minimum": 1, "maximum": 10000 } } },
+          "credential": { "type": "object", "additionalProperties": false, "required": ["id", "expiresAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "expiresAt": { "type": "string", "format": "date-time" } } },
+          "scopes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/components/schemas/Scope" } }
+        }
+      }
+    }
+  }
+}

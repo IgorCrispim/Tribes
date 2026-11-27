@@ -7,6 +7,7 @@ import { Camera, Check, LoaderCircle, LogOut, MapPin, Plus, Save, Trash2, UserRo
 import { useCurrentUser, type CurrentUser } from "@/components/social/auth-guard";
 import { UserAvatar } from "@/components/social/user-avatar";
 import { PasswordChangeForm } from "@/components/social/password-change-form";
+import { PartnerParticipantSettings } from "@/components/social/partner-participant-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -251,6 +252,7 @@ export default function ProfileSettingsPage() {
           </Button>
         </div>
       </form>
+      <PartnerParticipantSettings />
       <PasswordChangeForm />
     </main>
   );

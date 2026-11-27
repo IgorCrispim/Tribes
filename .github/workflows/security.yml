@@ -26,6 +26,17 @@ jobs:
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
 
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -p tribes-test -f compose.test.yaml build
+      - run: docker compose -p tribes-test -f compose.test.yaml run --rm tests
+      - if: failure()
+        run: docker compose -p tribes-test -f compose.test.yaml logs backend database object-storage-init
+      - if: always()
+        run: docker compose -p tribes-test -f compose.test.yaml down
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

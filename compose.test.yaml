@@ -1,0 +1,93 @@
+# Isolated, ephemeral integration environment. No production env files, shared
+# application volumes or host ports. Always use the explicit tribes-test project.
+x-test-environment: &test-environment
+  NODE_ENV: development
+  PORT: 4000
+  DATABASE_URL: postgres://tribes_app:isolated_runtime_password@database:5432/tribes_partner_test
+  MIGRATION_DATABASE_URL: postgres://tribes_migrator:isolated_test_password@database:5432/tribes_partner_test
+  DATABASE_RUNTIME_ROLE: tribes_app
+  FRONTEND_URL: http://frontend.test
+  METRICS_ADMIN_EMAILS: ""
+  MAPS_API: ""
+  EMAIL_PROVIDER: mailhog
+  SMTP_URL: smtp://mailhog:1025
+  EMAIL_FROM: Tribes <no-reply@tribes.test>
+  MAILHOG_API_URL: http://mailhog:8025
+  R2_ACCOUNT_ID: local
+  R2_ACCESS_KEY_ID: tribes-test-access
+  R2_SECRET_ACCESS_KEY: tribes-test-secret
+  R2_BUCKET_NAME: tribes-test-media
+  R2_ENDPOINT: http://object-storage:9000
+  R2_REGION: us-east-1
+
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: tribes_partner_test
+      POSTGRES_USER: tribes_migrator
+      POSTGRES_PASSWORD: isolated_test_password
+      DATABASE_RUNTIME_PASSWORD: isolated_runtime_password
+    volumes:
+      - ./backend/postgres-init-runtime-role.sh:/docker-entrypoint-initdb.d/010_runtime_role.sh:ro
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tribes_migrator -d tribes_partner_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+
+  object-storage:
+    image: rustfs/rustfs:1.0.5
+    environment:
+      RUSTFS_ACCESS_KEY: tribes-test-access
+      RUSTFS_SECRET_KEY: tribes-test-secret
+    tmpfs:
+      - /data:mode=0777
+      - /logs:mode=0777
+
+  object-storage-init:
+    image: tribes-integration-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment: *test-environment
+    command: ["node", "init-local-bucket.mjs"]
+    depends_on:
+      object-storage:
+        condition: service_started
+
+  backend:
+    image: tribes-integration-backend
+    environment: *test-environment
+    command: ["node", "server.mjs"]
+    init: true
+    depends_on:
+      database:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+      object-storage-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    image: tribes-integration-backend
+    environment:
+      <<: *test-environment
+      DATABASE_URL: postgres://tribes_migrator:isolated_test_password@database:5432/tribes_partner_test
+      TRIBES_TEST_ORIGIN: http://backend:4000
+      TRIBES_PARTNER_TEST_DATABASE_URL: postgres://tribes_migrator:isolated_test_password@database:5432/tribes_partner_test
+    command: ["npm", "test"]
+    init: true
+    depends_on:
+      backend:
+        condition: service_healthy

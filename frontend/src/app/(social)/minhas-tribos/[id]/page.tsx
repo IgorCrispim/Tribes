@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, LoaderCircle, Save, Trash2, Users } from "lucide-react";
+import { ArrowLeft, LoaderCircle, Save, ShieldCheck, Trash2, Unlink, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,6 +12,53 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { INTEREST_CATEGORIES } from "@/lib/tribes-data";
 import { apiRequest, type Tribe } from "@/lib/social-types";
+
+type SocialPartnerLink = {
+  id: string;
+  partnerId: string;
+  applicationId: string;
+  partnerTribeId: string;
+  externalTribeId: string;
+  partnerSlug: string;
+  partnerName: string;
+  applicationSlug: string;
+  applicationName: string;
+  authorizedBy: string;
+  authorizedByName: string;
+  authorizedAt: string;
+  privateAtAuthorization: boolean;
+  privateDataConsent: boolean;
+  revokedBy: string | null;
+  revokedByName: string | null;
+  revokedAt: string | null;
+  revocationSource: string | null;
+  active: boolean;
+};
+
+type TribeMember = { id: string; name: string; isModerator: boolean };
+type SocialPartnerGrant = {
+  id: string;
+  applicationId: string;
+  partnerTribeId: string;
+  externalTribeId: string;
+  beneficiaryUserId: string;
+  capability: "organizer.manage";
+  grantedBy: string;
+  grantedAt: string;
+  revokedBy: string | null;
+  revokedAt: string | null;
+  revocationSource: string | null;
+  active: boolean;
+};
+
+type SocialPartnerLinkPreview = {
+  confirmationToken: string;
+  expiresAt: string;
+  partner: { id: string; slug: string; name: string };
+  application: { id: string; slug: string; name: string };
+  partnerTribe: { id: string; externalTribeId: string; name: string };
+  socialTribe: { id: string; name: string; isPrivate: boolean };
+};
 
 export default function EditMyTribePage() {
   const { id } = useParams<{ id: string }>();
@@ -32,6 +79,39 @@ export default function EditMyTribePage() {
   const [deleteConfirmationName, setDeleteConfirmationName] = useState("");
   const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [partnerLinks, setPartnerLinks] = useState<SocialPartnerLink[]>([]);
+  const [partnerGrants, setPartnerGrants] = useState<SocialPartnerGrant[]>([]);
+  const [tribeMembers, setTribeMembers] = useState<TribeMember[]>([]);
+  const [partnerLinksLoading, setPartnerLinksLoading] = useState(false);
+  const [partnerLinksError, setPartnerLinksError] = useState("");
+  const [applicationId, setApplicationId] = useState("");
+  const [externalTribeId, setExternalTribeId] = useState("");
+  const [linkPreview, setLinkPreview] = useState<SocialPartnerLinkPreview | null>(null);
+  const [confirmPrivateSharing, setConfirmPrivateSharing] = useState(false);
+  const [linkWorking, setLinkWorking] = useState(false);
+  const [grantApplicationId, setGrantApplicationId] = useState("");
+  const [grantExternalTribeId, setGrantExternalTribeId] = useState("");
+  const [grantBeneficiaryUserId, setGrantBeneficiaryUserId] = useState("");
+  const [grantWorking, setGrantWorking] = useState(false);
+
+  const loadPartnerLinks = useCallback(async () => {
+    setPartnerLinksLoading(true);
+    setPartnerLinksError("");
+    try {
+      const [links, grants, members] = await Promise.all([
+        apiRequest<{ links: SocialPartnerLink[] }>(`/api/tribes/${id}/partner-links`, { cache: "no-store" }),
+        apiRequest<{ grants: SocialPartnerGrant[] }>(`/api/tribes/${id}/partner-grants`, { cache: "no-store" }),
+        apiRequest<{ members: TribeMember[] }>(`/api/tribes/${id}/members`, { cache: "no-store" }),
+      ]);
+      setPartnerLinks(links.links);
+      setPartnerGrants(grants.grants);
+      setTribeMembers(members.members);
+    } catch (loadError) {
+      setPartnerLinksError(loadError instanceof Error ? loadError.message : "Não foi possível carregar os vínculos de parceiros.");
+    } finally {
+      setPartnerLinksLoading(false);
+    }
+  }, [id]);
 
   useEffect(() => {
     let active = true;
@@ -50,13 +130,106 @@ export default function EditMyTribePage() {
         setFormat(current.format);
         setCity(current.city);
         setNeighborhood(current.neighborhood);
+        void loadPartnerLinks();
       })
       .catch((loadError) => {
         if (active) setError(loadError instanceof Error ? loadError.message : "Não foi possível carregar a tribo.");
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [id]);
+  }, [id, loadPartnerLinks]);
+
+  async function previewPartnerLink(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLinkWorking(true);
+    setPartnerLinksError("");
+    setLinkPreview(null);
+    setConfirmPrivateSharing(false);
+    try {
+      const preview = await apiRequest<SocialPartnerLinkPreview>(`/api/tribes/${id}/partner-links/preview`, {
+        method: "POST", body: JSON.stringify({ applicationId, externalTribeId }),
+      });
+      setLinkPreview(preview);
+    } catch (previewError) {
+      setPartnerLinksError(previewError instanceof Error ? previewError.message : "Não foi possível gerar a prévia do vínculo.");
+    } finally {
+      setLinkWorking(false);
+    }
+  }
+
+  async function confirmPartnerLink() {
+    if (!linkPreview) return;
+    setLinkWorking(true);
+    setPartnerLinksError("");
+    try {
+      await apiRequest(`/api/tribes/${id}/partner-links/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ confirmationToken: linkPreview.confirmationToken, confirmPrivateSharing }),
+      });
+      setLinkPreview(null);
+      setApplicationId("");
+      setExternalTribeId("");
+      setConfirmPrivateSharing(false);
+      await loadPartnerLinks();
+    } catch (confirmError) {
+      setPartnerLinksError(confirmError instanceof Error ? confirmError.message : "Não foi possível confirmar o vínculo.");
+    } finally {
+      setLinkWorking(false);
+    }
+  }
+
+  async function revokePartnerLink(link: SocialPartnerLink) {
+    setLinkWorking(true);
+    setPartnerLinksError("");
+    try {
+      await apiRequest(
+        `/api/tribes/${id}/partner-links/${encodeURIComponent(link.applicationId)}/${encodeURIComponent(link.externalTribeId)}`,
+        { method: "DELETE" },
+      );
+      await loadPartnerLinks();
+    } catch (revokeError) {
+      setPartnerLinksError(revokeError instanceof Error ? revokeError.message : "Não foi possível revogar o vínculo.");
+    } finally {
+      setLinkWorking(false);
+    }
+  }
+
+  async function issueOrganizerGrant(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setGrantWorking(true);
+    setPartnerLinksError("");
+    try {
+      await apiRequest(`/api/tribes/${id}/partner-grants`, {
+        method: "POST",
+        body: JSON.stringify({
+          applicationId: grantApplicationId,
+          externalTribeId: grantExternalTribeId,
+          beneficiaryUserId: grantBeneficiaryUserId,
+        }),
+      });
+      setGrantApplicationId("");
+      setGrantExternalTribeId("");
+      setGrantBeneficiaryUserId("");
+      await loadPartnerLinks();
+    } catch (grantError) {
+      setPartnerLinksError(grantError instanceof Error ? grantError.message : "Não foi possível designar o organizador.");
+    } finally {
+      setGrantWorking(false);
+    }
+  }
+
+  async function revokeOrganizerGrant(grant: SocialPartnerGrant) {
+    setGrantWorking(true);
+    setPartnerLinksError("");
+    try {
+      await apiRequest(`/api/tribes/${id}/partner-grants/${encodeURIComponent(grant.id)}`, { method: "DELETE" });
+      await loadPartnerLinks();
+    } catch (grantError) {
+      setPartnerLinksError(grantError instanceof Error ? grantError.message : "Não foi possível revogar o grant.");
+    } finally {
+      setGrantWorking(false);
+    }
+  }
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -140,6 +313,85 @@ export default function EditMyTribePage() {
         )}
         {!tribe && error && <p role="alert" className="mt-5 rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
       </section>
+      {tribe && <section className="space-y-5 rounded-3xl border border-border bg-card p-5 shadow-xs sm:p-8">
+        <div>
+          <Badge variant="outline"><ShieldCheck className="size-3" />Autorizações de parceiros</Badge>
+          <h2 className="mt-3 font-heading text-xl font-bold">Vínculos com integrações</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Somente você, como moderador autenticado, pode autorizar ou revogar o acesso de uma aplicação aos metadados desta tribo.</p>
+        </div>
+        <form onSubmit={(event) => void previewPartnerLink(event)} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+          <div className="space-y-1.5"><Label htmlFor="partner-application-id">ID da aplicação parceira</Label><Input id="partner-application-id" value={applicationId} onChange={(event) => setApplicationId(event.target.value)} required maxLength={36} placeholder="UUID da aplicação" /></div>
+          <div className="space-y-1.5"><Label htmlFor="partner-external-tribe-id">Identificador externo da tribo</Label><Input id="partner-external-tribe-id" value={externalTribeId} onChange={(event) => setExternalTribeId(event.target.value)} required maxLength={128} /></div>
+          <Button type="submit" disabled={linkWorking || !applicationId.trim() || !externalTribeId.trim()}>
+            {linkWorking ? <LoaderCircle className="size-4 animate-spin" /> : <ShieldCheck className="size-4" />}
+            Ver prévia
+          </Button>
+        </form>
+        {linkPreview && <div className="space-y-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+          <h3 className="font-semibold">Confirme o vínculo solicitado</h3>
+          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+            <div><dt className="text-muted-foreground">Parceiro</dt><dd className="font-medium">{linkPreview.partner.name} ({linkPreview.partner.slug})</dd></div>
+            <div><dt className="text-muted-foreground">Aplicação</dt><dd className="font-medium">{linkPreview.application.name} ({linkPreview.application.slug})</dd></div>
+            <div><dt className="text-muted-foreground">Recurso do parceiro</dt><dd className="font-medium">{linkPreview.partnerTribe.name} · {linkPreview.partnerTribe.externalTribeId}</dd></div>
+            <div><dt className="text-muted-foreground">Sua tribo</dt><dd className="font-medium">{linkPreview.socialTribe.name}</dd></div>
+          </dl>
+          <p className="text-sm text-muted-foreground">Ao autorizar, esta aplicação poderá consultar os metadados atuais da tribo e associar a ela eventos provisionais. Isso não altera a moderação nem publica conteúdo no feed.</p>
+          {linkPreview.socialTribe.isPrivate && <label className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
+            <input type="checkbox" checked={confirmPrivateSharing} onChange={(event) => setConfirmPrivateSharing(event.target.checked)} className="mt-1" />
+            <span>Confirmo que quero compartilhar os metadados desta tribo privada com o parceiro e a aplicação identificados acima.</span>
+          </label>}
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" disabled={linkWorking || (linkPreview.socialTribe.isPrivate && !confirmPrivateSharing)} onClick={() => void confirmPartnerLink()}>
+              {linkWorking && <LoaderCircle className="size-4 animate-spin" />}Autorizar vínculo
+            </Button>
+            <Button type="button" variant="outline" disabled={linkWorking} onClick={() => { setLinkPreview(null); setConfirmPrivateSharing(false); }}>Cancelar</Button>
+          </div>
+        </div>}
+        {partnerLinksError && <p role="alert" className="rounded-xl bg-destructive/10 px-3 py-2 text-sm text-destructive">{partnerLinksError}</p>}
+        {partnerLinksLoading && <div className="flex justify-center py-4"><LoaderCircle className="size-5 animate-spin text-primary" /></div>}
+        {!partnerLinksLoading && partnerLinks.length > 0 && <div className="space-y-2">
+          <h3 className="text-sm font-semibold">Histórico de autorizações</h3>
+          {partnerLinks.map((link) => <div key={link.id} className="flex flex-col gap-3 rounded-2xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 text-sm">
+              <p className="font-semibold">{link.partnerName} · {link.applicationName}</p>
+              <p className="break-all text-muted-foreground">ID externo: {link.externalTribeId}</p>
+              <p className="text-xs text-muted-foreground">Autorizado por {link.authorizedByName} · {new Date(link.authorizedAt).toLocaleString("pt-BR")}</p>
+              {link.revokedAt && <p className="text-xs text-muted-foreground">Revogado por {link.revokedByName ?? "exclusão da tribo"} · {new Date(link.revokedAt).toLocaleString("pt-BR")}</p>}
+              {link.privateAtAuthorization && <p className="text-xs text-amber-700">Consentimento para metadados privados registrado.</p>}
+            </div>
+            {link.active && <Button type="button" variant="outline" disabled={linkWorking} onClick={() => void revokePartnerLink(link)}>
+              {linkWorking ? <LoaderCircle className="size-4 animate-spin" /> : <Unlink className="size-4" />}Revogar
+            </Button>}
+          </div>)}
+        </div>}
+        {!partnerLinksLoading && partnerLinks.length === 0 && <p className="text-sm text-muted-foreground">Ainda não há vínculos autorizados.</p>}
+        <div className="space-y-3 border-t border-border pt-5">
+          <div>
+            <h3 className="font-semibold">Designações de organizadores</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Designa um membro ativo como organizador humano de um recurso provisional já vinculado. Isso não concede permissões de edição, moderação ou publicação na Tribes.</p>
+          </div>
+          <form onSubmit={(event) => void issueOrganizerGrant(event)} className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5"><Label htmlFor="grant-application-id">ID da aplicação</Label><Input id="grant-application-id" value={grantApplicationId} onChange={(event) => setGrantApplicationId(event.target.value)} required maxLength={36} placeholder="UUID da aplicação" /></div>
+            <div className="space-y-1.5"><Label htmlFor="grant-external-tribe-id">Identificador externo da tribo</Label><Input id="grant-external-tribe-id" value={grantExternalTribeId} onChange={(event) => setGrantExternalTribeId(event.target.value)} required maxLength={128} /></div>
+            <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="grant-beneficiary">Membro designado</Label><select id="grant-beneficiary" value={grantBeneficiaryUserId} onChange={(event) => setGrantBeneficiaryUserId(event.target.value)} required className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"><option value="">Selecione um membro ativo</option>{tribeMembers.map((member) => <option key={member.id} value={member.id}>{member.name}{member.isModerator ? " (moderador)" : ""}</option>)}</select></div>
+            <div className="sm:col-span-2"><Button type="submit" disabled={grantWorking || !grantApplicationId.trim() || !grantExternalTribeId.trim() || !grantBeneficiaryUserId}>{grantWorking && <LoaderCircle className="size-4 animate-spin" />}Designar organizador</Button></div>
+          </form>
+          {partnerGrants.length > 0 ? <div className="space-y-2">
+            <h4 className="text-sm font-semibold">Histórico de designações</h4>
+            {partnerGrants.map((grant) => {
+              const memberName = tribeMembers.find((member) => member.id === grant.beneficiaryUserId)?.name;
+              return <div key={grant.id} className="flex flex-col gap-3 rounded-2xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 text-sm">
+                  <p className="font-semibold">{memberName ?? `Membro ${grant.beneficiaryUserId.slice(0, 8)}`} · {grant.externalTribeId}</p>
+                  <p className="text-xs text-muted-foreground">Designado em {new Date(grant.grantedAt).toLocaleString("pt-BR")} · organizer.manage</p>
+                  {grant.revokedAt && <p className="text-xs text-muted-foreground">Revogado em {new Date(grant.revokedAt).toLocaleString("pt-BR")} ({grant.revocationSource})</p>}
+                </div>
+                {grant.active && <Button type="button" variant="outline" disabled={grantWorking} onClick={() => void revokeOrganizerGrant(grant)}>{grantWorking ? <LoaderCircle className="size-4 animate-spin" /> : <Unlink className="size-4" />}Revogar designação</Button>}
+              </div>;
+            })}
+          </div> : !partnerLinksLoading && <p className="text-sm text-muted-foreground">Ainda não há designações de organizadores.</p>}
+        </div>
+      </section>}
       <Dialog open={deleteDialogOpen} onOpenChange={closeDeleteDialog}>
         <DialogContent>
           {deleteStep === 1 ? <>

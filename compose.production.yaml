@@ -27,7 +27,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.production}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL for the non-owner application role}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:?Set MIGRATION_DATABASE_URL for the migration owner role}
+      DATABASE_RUNTIME_ROLE: ${DATABASE_RUNTIME_ROLE:?Set DATABASE_RUNTIME_ROLE to the non-owner application role}
       FRONTEND_URL: ${FRONTEND_URL:?Set FRONTEND_URL to the public HTTPS origin}
       FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:-https://www.tribeyourself.com.br,https://tribeyourself.com.br}
       MAPS_API: ${MAPS_API:-}
@@ -61,15 +63,17 @@ services:
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: tribes
-      POSTGRES_USER: tribes
+      POSTGRES_USER: tribes_migrator
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      DATABASE_RUNTIME_PASSWORD: ${DATABASE_RUNTIME_PASSWORD:?Set DATABASE_RUNTIME_PASSWORD for tribes_app}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backend/postgres-init-runtime-role.sh:/docker-entrypoint-initdb.d/010_runtime_role.sh:ro
     expose:
       - "5432"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tribes -d tribes"]
+      test: ["CMD-SHELL", "pg_isready -U tribes_migrator -d tribes"]
       interval: 10s
       timeout: 5s
       retries: 5

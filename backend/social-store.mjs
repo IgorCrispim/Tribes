@@ -6,13 +6,20 @@ import pg from "pg";
 import { digestSessionToken, verifyPassword } from "./security.mjs";
 import { getObjectStorage } from "./object-storage.mjs";
 import { SESSION_MAX_AGE_SECONDS, SESSION_RENEW_THRESHOLD_SECONDS } from "./session-policy.mjs";
+import { assertTombstoneRuntimeRole } from "./runtime-role-policy.mjs";
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const migrationPool = new Pool({
+  connectionString: process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL,
+});
 const migrationsDirectory = path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations");
 
 export async function initializeSocialStore() {
-  await pool.query(`
+  if (process.env.NODE_ENV === "production" && !process.env.MIGRATION_DATABASE_URL) {
+    throw new Error("MIGRATION_DATABASE_URL is required in production.");
+  }
+  await migrationPool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       name TEXT PRIMARY KEY,
       applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -20,7 +27,7 @@ export async function initializeSocialStore() {
   `);
   const files = (await readdir(migrationsDirectory)).filter((file) => file.endsWith(".sql")).sort();
   for (const name of files) {
-    const client = await pool.connect();
+    const client = await migrationPool.connect();
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(712034)");
@@ -37,10 +44,78 @@ export async function initializeSocialStore() {
       client.release();
     }
   }
+  const runtimeRoleName = process.env.DATABASE_RUNTIME_ROLE;
+  if (process.env.NODE_ENV === "production" && !runtimeRoleName) {
+    throw new Error("DATABASE_RUNTIME_ROLE is required in production.");
+  }
+  if (runtimeRoleName) {
+    const runtimeRoleExists = await migrationPool.query(
+      "SELECT 1 FROM pg_roles WHERE rolname = $1", [runtimeRoleName]);
+    if (!runtimeRoleExists.rowCount) throw new Error("Configured runtime PostgreSQL role does not exist.");
+    const revokeRuntimeSql = (await migrationPool.query(
+      "SELECT format('REVOKE ALL ON TABLE partner_event_participant_claim_token_hashes FROM %I', $1::text) AS sql",
+      [runtimeRoleName])).rows[0].sql;
+    const revokeRuntimeFunctionSql = (await migrationPool.query(
+      "SELECT format('REVOKE ALL ON FUNCTION record_partner_participant_claim_token_hash(CHAR, UUID, BIGINT) FROM %I', $1::text) AS sql",
+      [runtimeRoleName])).rows[0].sql;
+    const grantRuntimeFunctionSql = (await migrationPool.query(
+      "SELECT format('GRANT EXECUTE ON FUNCTION record_partner_participant_claim_token_hash(CHAR, UUID, BIGINT) TO %I', $1::text) AS sql",
+      [runtimeRoleName])).rows[0].sql;
+    await migrationPool.query(revokeRuntimeSql);
+    await migrationPool.query("REVOKE ALL ON FUNCTION record_partner_participant_claim_token_hash(CHAR, UUID, BIGINT) FROM PUBLIC");
+    await migrationPool.query(revokeRuntimeFunctionSql);
+    await migrationPool.query(grantRuntimeFunctionSql);
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    const tombstoneAccess = (await pool.query(`
+       SELECT current_user AS runtime_role,
+              role.rolsuper,
+              role.rolbypassrls,
+              table_info.relowner = role.oid AS owns_table,
+             EXISTS (
+               SELECT 1
+               FROM pg_roles member_role
+               WHERE member_role.oid <> role.oid
+                 AND pg_has_role(current_user, member_role.oid, 'MEMBER')
+             ) AS has_role_memberships,
+             has_table_privilege(current_user, table_info.oid, 'SELECT') AS can_select,
+             has_table_privilege(current_user, table_info.oid, 'INSERT') AS can_insert,
+             has_table_privilege(current_user, table_info.oid, 'UPDATE') AS can_update,
+             has_table_privilege(current_user, table_info.oid, 'DELETE') AS can_delete,
+             has_table_privilege(current_user, table_info.oid, 'TRUNCATE') AS can_truncate,
+             has_table_privilege(current_user, table_info.oid, 'REFERENCES') AS can_reference,
+             has_table_privilege(current_user, table_info.oid, 'TRIGGER') AS can_trigger,
+             EXISTS (
+               SELECT 1
+               FROM aclexplode(COALESCE(
+                 table_info.relacl, acldefault('r', table_info.relowner)
+               )) acl
+               WHERE acl.grantee = 0
+             ) AS public_table_access,
+             has_function_privilege(current_user, runtime_function.oid, 'EXECUTE') AS can_execute,
+             EXISTS (
+               SELECT 1
+               FROM aclexplode(COALESCE(
+                 runtime_function.proacl, acldefault('f', runtime_function.proowner)
+               )) acl
+               WHERE acl.grantee = 0 AND acl.privilege_type = 'EXECUTE'
+             ) AS public_function_access
+      FROM pg_class table_info
+      JOIN pg_roles role ON role.rolname = current_user
+      JOIN pg_proc runtime_function
+        ON runtime_function.pronamespace = table_info.relnamespace
+       AND runtime_function.proname = 'record_partner_participant_claim_token_hash'
+       AND runtime_function.pronargs = 3
+      WHERE table_info.oid = 'partner_event_participant_claim_token_hashes'::regclass
+    `)).rows[0];
+    assertTombstoneRuntimeRole(tombstoneAccess, runtimeRoleName);
+  }
   await pool.query("DELETE FROM user_sessions WHERE expires_at <= CURRENT_TIMESTAMP");
   await pool.query("DELETE FROM registration_tokens WHERE expires_at <= CURRENT_TIMESTAMP");
   await pool.query("DELETE FROM password_reset_tokens WHERE expires_at <= CURRENT_TIMESTAMP");
   await pool.query("DELETE FROM email_queue WHERE status IN ('sent', 'failed', 'skipped') AND created_at < CURRENT_TIMESTAMP - INTERVAL '30 days'");
+  await pool.query("DELETE FROM partner_social_link_previews WHERE expires_at <= CURRENT_TIMESTAMP");
 }
 
 export async function createRegistrationToken({ email, tokenHash, expiresAt, invitationId = null, queueId = null }) {
@@ -693,15 +768,20 @@ export async function listPopularPublicTribes(limit = 3) {
   }));
 }
 
-export async function getPublicTribe(tribeId) {
+export async function getPublicTribe(tribeId, viewerId = null) {
   const { rows } = await pool.query(
     `SELECT t.id, t.name, t.description, t.category, t.format, t.city, t.neighborhood,
             t.created_at, t.is_private, COUNT(DISTINCT m.user_id)::int AS member_count
      FROM tribes t
      LEFT JOIN tribe_memberships m ON m.tribe_id = t.id AND m.status = 'active'
-     WHERE t.id = $1
-     GROUP BY t.id`,
-    [tribeId]
+      WHERE t.id = $1
+        AND (t.is_private = FALSE OR EXISTS (
+          SELECT 1 FROM tribe_memberships viewer_membership
+          WHERE viewer_membership.tribe_id = t.id AND viewer_membership.user_id = $2
+            AND viewer_membership.status = 'active'
+        ))
+      GROUP BY t.id`,
+    [tribeId, viewerId]
   );
   const row = rows[0];
   if (!row) return null;
@@ -710,6 +790,11 @@ export async function getPublicTribe(tribeId) {
     format: row.format, city: row.city, neighborhood: row.neighborhood,
     createdAt: row.created_at, memberCount: row.member_count, isMember: false, isPrivate: row.is_private,
   };
+}
+
+export async function socialTribeExists(tribeId) {
+  const { rowCount } = await pool.query("SELECT 1 FROM tribes WHERE id = $1", [tribeId]);
+  return rowCount > 0;
 }
 
 

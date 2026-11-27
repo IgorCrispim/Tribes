@@ -9,6 +9,7 @@
     "seed:demo": "node seed-demo.mjs",
     "init:local-bucket": "node init-local-bucket.mjs",
     "migrate:legacy-images": "node migrate-legacy-images.mjs",
+    "partners:admin": "node partner-admin.mjs",
     "test": "node --test",
     "test:integration": "TRIBES_TEST_ORIGIN=http://127.0.0.1:4000 node --test test/*.test.mjs"
   },

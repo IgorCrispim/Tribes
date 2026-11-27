@@ -1,0 +1,31 @@
+#!/bin/sh
+set -eu
+
+: "${DATABASE_RUNTIME_PASSWORD:?DATABASE_RUNTIME_PASSWORD is required to provision tribes_app}"
+
+psql \
+  --username "$POSTGRES_USER" \
+  --dbname "$POSTGRES_DB" \
+  --set=ON_ERROR_STOP=1 \
+  --set=database_name="$POSTGRES_DB" \
+  --set=runtime_password="$DATABASE_RUNTIME_PASSWORD" <<'SQL'
+SELECT format(
+  'CREATE ROLE tribes_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD %L',
+  :'runtime_password'
+)
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tribes_app')
+\gexec
+
+ALTER ROLE tribes_app
+  LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT;
+
+GRANT CONNECT ON DATABASE :"database_name" TO tribes_app;
+GRANT USAGE ON SCHEMA public TO tribes_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO tribes_app;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO tribes_app;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE tribes_migrator IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tribes_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE tribes_migrator IN SCHEMA public
+  GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO tribes_app;
+SQL

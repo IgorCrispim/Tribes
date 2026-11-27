@@ -14,6 +14,8 @@ import { isMetricsAdmin, parseMetricsAdminEmails } from "./metrics-auth.mjs";
 import { handleSocialRequest } from "./social-api.mjs";
 import { deleteExpiredTribeMessages, getSessionUser, initializeSocialStore } from "./social-store.mjs";
 import { startEmailQueueWorker } from "./email-queue-worker.mjs";
+import { handlePartnerRequest } from "./partner-api.mjs";
+import { partnerStore } from "./partner-store.mjs";
 
 const PORT = Number(process.env.PORT ?? 4000);
 const ANALYTICS_COOKIE = "tribes_analytics";
@@ -91,6 +93,7 @@ const server = createServer(async (request, response) => {
     response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+  if (await handlePartnerRequest(request, response, new URL(request.url ?? "/", "http://localhost"))) return;
   const origin = request.headers.origin;
   if (origin && !["GET", "HEAD", "OPTIONS"].includes(request.method ?? "GET") && !isAllowedFrontendOrigin(origin)) {
     return sendJson(response, 403, { error: "Origem da requisição não permitida." });
@@ -191,7 +194,26 @@ const server = createServer(async (request, response) => {
 });
 
 Promise.all([checkDatabase(), initializeSocialStore()])
-  .then(() => {
+  .then(async () => {
+    const cleanupPartnerParticipants = async () => {
+      try {
+        const run = await partnerStore.deleteExpiredPartnerParticipantData();
+        console.info("Limpeza de retenção de participantes concluída.", {
+          startedAt: run.started_at,
+          completedAt: run.completed_at,
+          durationMs: Number(run.duration_ms),
+          previewsDeleted: run.previews_deleted,
+          participantsProcessed: run.participants_processed,
+          historyRowsAggregated: run.history_rows_aggregated,
+          auditRowsAggregated: run.audit_rows_aggregated,
+        });
+      } catch {
+        console.error("Falha na limpeza periódica de dados de participantes parceiros.");
+      }
+    };
+    await cleanupPartnerParticipants();
+    const participantCleanupTimer = setInterval(() => void cleanupPartnerParticipants(), 24 * 60 * 60 * 1000);
+    participantCleanupTimer.unref();
     startEmailQueueWorker();
     const cleanupOldAnalytics = async () => {
       try {

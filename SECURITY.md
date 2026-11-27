@@ -5,7 +5,10 @@ O `compose.yaml` continua sendo o ambiente local de desenvolvimento. Ele não de
 ## Subir a configuração de produção
 
 1. Copie `.env.production.example` para `.env.production`.
-2. Substitua todos os valores de exemplo por credenciais fortes e reais.
+2. Substitua todos os valores de exemplo por credenciais fortes e reais. Use segredos
+   distintos para `POSTGRES_PASSWORD` (`tribes_migrator`) e
+   `DATABASE_RUNTIME_PASSWORD` (`tribes_app`); `DATABASE_URL` e
+   `MIGRATION_DATABASE_URL` devem usar a role correspondente.
 3. Defina `FRONTEND_URL` com a origem HTTPS principal exata (protocolo + domínio + porta, sem caminho). O Compose de produção já permite `www.tribeyourself.com.br` e `tribeyourself.com.br` por padrão.
 4. Se o frontend também responder por outros domínios, informe as origens adicionais em `FRONTEND_ORIGINS`, separadas por vírgula. Não use caminhos nem curingas.
 5. Configure uma chave de API do Resend e um bucket privado no Cloudflare R2.
@@ -18,7 +21,13 @@ docker compose --env-file .env.production -f compose.production.yaml up -d --bui
 
 O backend, PostgreSQL e seus dados de armazenamento não têm portas publicadas no host. O MailHog e o RustFS local não fazem parte do Compose de produção. Os containers de produção executam como usuário não-root e usam filesystem somente leitura, com diretórios temporários em tmpfs.
 
-**Atenção:** mantenha o bucket R2 privado. Não habilite acesso público ao bucket. Use uma senha PostgreSQL longa e codifique caracteres especiais em formato URL na variável `DATABASE_URL`. Não versione o arquivo `.env.production`.
+**Atenção:** mantenha o bucket R2 privado. Não habilite acesso público ao bucket.
+Codifique caracteres especiais em formato URL nas duas URLs PostgreSQL e não versione
+`.env.production`. O script de bootstrap de roles roda somente quando o volume
+PostgreSQL é inicializado vazio. Em volume existente, não basta alterar as variáveis:
+um DBA deve provisionar `tribes_app`, atualizar grants/default privileges e verificar
+a role runtime (`NOSUPERUSER`, `NOBYPASSRLS`, não-owner e sem memberships proibidas)
+conforme `backend/PARTNER_API.md` antes de iniciar a nova configuração.
 
 ## Controles implementados
 

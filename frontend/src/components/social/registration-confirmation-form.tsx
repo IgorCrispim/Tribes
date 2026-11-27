@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { PASSWORD_HINT, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, passwordPolicyError } from "@/lib/password-policy";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { clearInvitationToken, getInvitationToken } from "@/lib/invitation-token";
+import { getParticipantClaimSession, notifySocialSessionReady } from "@/lib/partner-participant-claim-session";
 
 export function RegistrationConfirmationForm({ token }: { token: string }) {
   const router = useRouter();
@@ -41,6 +42,12 @@ export function RegistrationConfirmationForm({ token }: { token: string }) {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Não foi possível criar sua conta.");
+      notifySocialSessionReady();
+      if (getParticipantClaimSession()) {
+        router.replace("/ingressos/resgatar");
+        router.refresh();
+        return;
+      }
       const storedInvitation = getInvitationToken();
       if (result.invitationTribeId) {
         clearInvitationToken();
@@ -72,7 +79,7 @@ export function RegistrationConfirmationForm({ token }: { token: string }) {
       <ThemeToggle className="absolute right-4 top-4" />
       <section className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-lg sm:p-8">
         <h1 className="font-heading text-2xl font-extrabold">Finalize sua conta</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Escolha como você aparecerá nas tribos e crie uma senha segura.</p>
+        <p className="mt-2 text-sm text-muted-foreground">Escolha como você aparecerá nas tribos e crie uma senha segura. Se estiver resgatando um ingresso em outra aba, ela continuará o resgate automaticamente.</p>
         {!token ? (
           <p role="alert" className="mt-6 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             O link está incompleto. Solicite um novo link de cadastro.

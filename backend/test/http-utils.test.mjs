@@ -19,7 +19,7 @@ test("readJson preserves custom parse errors and payload-size limits", async () 
   );
   await assert.rejects(
     readJson(Readable.from([Buffer.from("1234")]), { maxSize: 3 }),
-    { statusCode: 413, message: "Payload muito grande." }
+    { statusCode: 413, code: "invalid_payload", message: "Payload muito grande." }
   );
 });
 

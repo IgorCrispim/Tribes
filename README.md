@@ -34,6 +34,21 @@ Landing Page de validação (Smoke Test + Protótipo Interativo) para a rede soc
 - Lucide Icons
 - Cadastro por link de e-mail, senhas derivadas por scrypt e sessões próprias com cookie `HttpOnly`; sessões renovam até 30 dias de inatividade e expiram no máximo 90 dias após o login
 
+## API de parceiros (B2B2C)
+
+A API server-to-server de parceiros oferece empresas, aplicações, API keys com
+hash, escopos, validade/revogação, status e provisionamento isolado de tribos e
+eventos antes da conta do organizador. Esses recursos não são publicados no feed
+social. Moderadores sociais podem designar membros ativos como organizadores
+humanos de recursos provisionais vinculados; a integração consulta essas
+designações com o escopo `organizer-grants:read`. A capacidade `organizer.manage`
+é somente uma designação para a aplicação e não concede escrita, moderação ou
+ações sociais na Tribes. Veja o provisionamento operacional e contrato em
+[backend/PARTNER_API.md](backend/PARTNER_API.md) e
+[OpenAPI](backend/partner-openapi.json). As sessões e funcionalidades sociais
+continuam independentes. Os testes completos rodam em ambiente efêmero e isolado
+com `compose.test.yaml`, conforme a documentação da API.
+
 ## Como executar com Docker
 
 ```bash

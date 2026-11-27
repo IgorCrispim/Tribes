@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { TribesMark } from "@/components/tribes/tribes-mark";
 import { trackMvpEvent } from "@/lib/mvp-tracker";
 import { getInvitationToken } from "@/lib/invitation-token";
+import { getParticipantClaimSession, onSocialSessionReady } from "@/lib/partner-participant-claim-session";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -26,6 +27,14 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   useEffect(() => {
     if (registering) void trackMvpEvent({ event: "page_view", pagePath: "/cadastro" });
   }, [registering]);
+
+  useEffect(() => {
+    if (!getParticipantClaimSession()) return;
+    return onSocialSessionReady(() => {
+      router.replace("/ingressos/resgatar");
+      router.refresh();
+    });
+  }, [router]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -47,13 +56,17 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       }
       const params = new URLSearchParams(window.location.search);
       const next = params.get("next");
-      router.replace(next?.startsWith("/") && !next.startsWith("//") ? next : getInvitationToken() ? "/convite" : "/feed");
+      router.replace(next?.startsWith("/") && !next.startsWith("//")
+        ? next
+        : getParticipantClaimSession() ? "/ingressos/resgatar"
+          : getInvitationToken() ? "/convite" : "/feed");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Tente novamente.");
     } finally {
       setSubmitting(false);
     }
   }
+
 
   return (
     <main className="relative flex min-h-screen items-center justify-center px-4 py-10">
@@ -77,6 +90,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
               : "Informe seu e-mail e enviaremos um link para criar sua senha."
             : "Suas tribos e conversas estão esperando por você."}
         </p>
+        {registrationRequested && getParticipantClaimSession() && <p role="status" className="mt-3 rounded-xl bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+          Depois de confirmar o cadastro no e-mail, volte para esta aba. O resgate será retomado automaticamente.
+        </p>}
         {!registrationRequested && <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="email">E-mail</Label>
@@ -99,7 +115,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         </form>}
         <p className="mt-5 text-center text-sm text-muted-foreground">
           {registering ? "Já tem uma conta? " : "Ainda não tem uma conta? "}
-          <Link href={registering ? "/entrar" : "/cadastro"} className="font-semibold text-primary hover:underline">
+          <Link href={registering ? "/entrar" : "/cadastro"} onClick={event => {
+            const next = new URLSearchParams(window.location.search).get("next") ?? "";
+            if (next.startsWith("/") && !next.startsWith("//")) {
+              event.preventDefault();
+              router.push(`${registering ? "/entrar" : "/cadastro"}?next=${encodeURIComponent(next)}`);
+            }
+          }} className="font-semibold text-primary hover:underline">
             {registering ? "Entrar" : "Cadastre-se"}
           </Link>
         </p>

@@ -6,6 +6,7 @@ import { wakeEmailQueueWorker } from "./email-queue-worker.mjs";
 import { registrationMessageForDelivery } from "./registration-message.mjs";
 import { recordAnalyticsEvent } from "./analytics-store.mjs";
 import { SESSION_IDLE_TTL_SECONDS } from "./session-policy.mjs";
+import { partnerStore } from "./partner-store.mjs";
 import {
   addComment,
   createDirectMessage,
@@ -59,6 +60,7 @@ import {
   leaveTribe,
   listComments,
   searchTribes,
+  socialTribeExists,
   searchDirectMessageUsers,
   setEventAttendance,
   setPollVote,
@@ -186,12 +188,19 @@ function allowApiAttempt(request, user, method) {
 export async function handleSocialRequest(request, response, url) {
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
   const method = request.method ?? "GET";
+  const socialPartnerLinkPath = /^\/api\/tribes\/[^/]+\/partner-links(?:\/(?:preview|confirm|[^/]+\/[^/]+))?$/.test(pathname);
+  const socialPartnerGrantPath = /^\/api\/tribes\/[^/]+\/partner-grants(?:\/[^/]+)?$/.test(pathname);
+  const socialParticipantPath = pathname === "/api/partner-participants/preview" ||
+    pathname === "/api/partner-participants/confirm" || pathname === "/api/me/partner-participants" ||
+    /^\/api\/me\/partner-participants\/[^/]+(?:\/join-tribe)?$/.test(pathname);
+  const socialPartnerIntegrationPath = socialPartnerLinkPath || socialPartnerGrantPath || socialParticipantPath;
   const routeKnown = pathname.startsWith("/api/auth/") || pathname === "/api/maps-config" ||
     pathname === "/api/profile" || /^\/api\/users\/[^/]+\/(?:profile|avatar)$/.test(pathname) ||
     pathname === "/api/dm/users" || pathname === "/api/dm/conversations" || /^\/api\/dm\/conversations\/[^/]+(?:\/messages)?$/.test(pathname) ||
     pathname === "/api/feed" || pathname === "/api/saved" || /^\/api\/content\/[^/]+$/.test(pathname) || /^\/api\/content\/[^/]+\/save$/.test(pathname) || pathname === "/api/events" || pathname === "/api/notifications" || /^\/api\/notifications\/[^/]+\/read$/.test(pathname) || pathname === "/api/notifications/read-all" || pathname === "/api/tribes" || pathname === "/api/public/tribes" ||
     /^\/api\/tribes\/[^/]+$/.test(pathname) || /^\/api\/tribes\/[^/]+\/(?:join|membership|posts|events|members|messages|invitations)$/.test(pathname) || /^\/api\/tribes\/[^/]+\/messages\/[^/]+$/.test(pathname) ||
     pathname === "/api/invitations" || pathname === "/api/invitations/resolve" || /^\/api\/invitations\/[^/]+(?:\/(?:accept|decline))?$/.test(pathname) ||
+     socialPartnerIntegrationPath ||
     /^\/api\/content\/[^/]+\/image$/.test(pathname) ||
     /^\/api\/content\/[^/]+\/(?:like|comments|attendance|vote)$/.test(pathname) ||
     /^\/api\/comments\/[^/]+(?:\/like)?$/.test(pathname);
@@ -342,12 +351,14 @@ export async function handleSocialRequest(request, response, url) {
     if (publicTribeMatch && method === "GET") {
       const tribeId = requireUuid(publicTribeMatch[1], "Tribo");
       const tribe = await getPublicTribe(tribeId);
-      if (!tribe) {
+      if (tribe) {
+        sendJson(response, 200, { tribe });
+        return true;
+      }
+      if (!(await socialTribeExists(tribeId))) {
         sendJson(response, 404, { error: "Tribo não encontrada." });
         return true;
       }
-      sendJson(response, 200, { tribe });
-      return true;
     }
     if (pathname === "/api/maps-config" && method === "GET") {
       sendJson(response, 200, { apiKey: process.env.MAPS_API ?? "" }, { "Cache-Control": "no-store, max-age=0" });
@@ -356,7 +367,13 @@ export async function handleSocialRequest(request, response, url) {
 
     const user = await authenticatedUser(request, response);
     if (!user) {
-      sendJson(response, 401, { error: "Autenticação necessária." });
+      if (publicTribeMatch && method === "GET") {
+        sendJson(response, 404, { error: "Tribo não encontrada." });
+      } else {
+        sendJson(response, 401, socialPartnerLinkPath || socialParticipantPath
+          ? { error: "Sessão social necessária.", code: "social_session_required" }
+          : { error: "Autenticação necessária." });
+      }
       return true;
     }
     const isPasswordChangeRoute = pathname === "/api/auth/password-change" && method === "POST";
@@ -364,7 +381,167 @@ export async function handleSocialRequest(request, response, url) {
       ? allowAuthAttempt(request, `password-change:${user.id}`)
       : allowApiAttempt(request, user, method);
     if (!allowedAttempt) {
-      sendJson(response, 429, { error: "Muitas requisições. Aguarde um minuto e tente novamente." }, { "Retry-After": "60" });
+      sendJson(response, 429, {
+        error: "Muitas requisições. Aguarde um minuto e tente novamente.",
+        ...(socialPartnerIntegrationPath ? { code: "rate_limit_exceeded" } : {}),
+      }, { "Retry-After": "60" });
+      return true;
+    }
+
+    if (publicTribeMatch && method === "GET") {
+      const tribe = await getPublicTribe(requireUuid(publicTribeMatch[1], "Tribo"), user.id);
+      if (!tribe) {
+        sendJson(response, 404, { error: "Tribo não encontrada." });
+        return true;
+      }
+      sendJson(response, 200, { tribe });
+      return true;
+    }
+
+    const partnerLinks = pathname.match(/^\/api\/tribes\/([^/]+)\/partner-links$/);
+    const partnerLinkPreview = pathname.match(/^\/api\/tribes\/([^/]+)\/partner-links\/preview$/);
+    const partnerLinkConfirm = pathname.match(/^\/api\/tribes\/([^/]+)\/partner-links\/confirm$/);
+    const partnerLinkRevoke = pathname.match(/^\/api\/tribes\/([^/]+)\/partner-links\/([^/]+)\/([^/]+)$/);
+    if (partnerLinks || partnerLinkPreview || partnerLinkConfirm || partnerLinkRevoke) {
+      const socialTribeId = requireUuid((partnerLinks ?? partnerLinkPreview ?? partnerLinkConfirm ?? partnerLinkRevoke)[1], "Tribo");
+      const sessionToken = readCookie(request, SESSION_COOKIE);
+      if (partnerLinks) {
+        if (method !== "GET") { sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, { Allow: "GET" }); return true; }
+        sendJson(response, 200, await partnerStore.listSocialTribePartnerLinks({ sessionToken, userId: user.id, socialTribeId }));
+        return true;
+      }
+      if (partnerLinkPreview) {
+        if (method !== "POST") { sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, { Allow: "POST" }); return true; }
+        const payload = await readJson(request, { requireObject: true, invalidMessage: "Objeto JSON inválido." });
+        if (Object.keys(payload).some(key => !["applicationId", "externalTribeId"].includes(key))) throw invalid("Campos de prévia inválidos.");
+        const result = await partnerStore.previewSocialTribePartnerLink({
+          sessionToken, userId: user.id, socialTribeId,
+          applicationId: requireUuid(payload.applicationId, "Aplicação"),
+          externalTribeId: requiredString(payload.externalTribeId, "identificador externo da tribo", 1, 128),
+        });
+        sendJson(response, 200, result);
+        return true;
+      }
+      if (partnerLinkConfirm) {
+        if (method !== "POST") { sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, { Allow: "POST" }); return true; }
+        const payload = await readJson(request, { requireObject: true, invalidMessage: "Objeto JSON inválido." });
+        if (Object.keys(payload).some(key => !["confirmationToken", "confirmPrivateSharing"].includes(key)) ||
+            (payload.confirmPrivateSharing !== undefined && typeof payload.confirmPrivateSharing !== "boolean")) {
+          throw invalid("Campos de confirmação inválidos.");
+        }
+        const result = await partnerStore.confirmSocialTribePartnerLink({
+          sessionToken, userId: user.id, socialTribeId,
+          confirmationToken: payload.confirmationToken, confirmPrivateSharing: payload.confirmPrivateSharing === true,
+        });
+        sendJson(response, 201, result);
+        return true;
+      }
+      if (method !== "DELETE") { sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, { Allow: "DELETE" }); return true; }
+      let externalTribeId;
+      try { externalTribeId = decodeURIComponent(partnerLinkRevoke[3]); }
+      catch { throw invalid("Identificador externo da tribo inválido."); }
+      const result = await partnerStore.revokeSocialTribePartnerLink({
+        sessionToken, userId: user.id, socialTribeId,
+        applicationId: requireUuid(partnerLinkRevoke[2], "Aplicação"), externalTribeId,
+      });
+      sendJson(response, 200, result);
+      return true;
+    }
+
+    const partnerGrants = pathname.match(/^\/api\/tribes\/([^/]+)\/partner-grants$/);
+    const partnerGrant = pathname.match(/^\/api\/tribes\/([^/]+)\/partner-grants\/([^/]+)$/);
+    if (partnerGrants || partnerGrant) {
+      if ([...url.searchParams].length > 0) throw invalid("Esta rota não aceita parâmetros de consulta.");
+      const socialTribeId = requireUuid((partnerGrants ?? partnerGrant)[1], "Tribo");
+      const sessionToken = readCookie(request, SESSION_COOKIE);
+      if (partnerGrants && method === "GET") {
+        sendJson(response, 200, await partnerStore.listSocialTribePartnerOrganizerGrants({
+          sessionToken, userId: user.id, socialTribeId,
+        }));
+        return true;
+      }
+      if (partnerGrants && method === "POST") {
+        const payload = await readJson(request, { maxSize: 4096, requireObject: true, invalidMessage: "Objeto JSON inválido." });
+        if (Object.keys(payload).some(key => !["applicationId", "externalTribeId", "beneficiaryUserId"].includes(key)) ||
+            !Object.hasOwn(payload, "applicationId") || !Object.hasOwn(payload, "externalTribeId") ||
+            !Object.hasOwn(payload, "beneficiaryUserId")) {
+          throw invalid("Informe aplicação, identificador externo da tribo e beneficiário.");
+        }
+        const result = await partnerStore.issueSocialTribePartnerOrganizerGrant({
+          sessionToken, userId: user.id, socialTribeId,
+          applicationId: requireUuid(payload.applicationId, "Aplicação"),
+          externalTribeId: requiredString(payload.externalTribeId, "identificador externo da tribo", 1, 128),
+          beneficiaryUserId: requireUuid(payload.beneficiaryUserId, "Beneficiário"),
+        });
+        sendJson(response, result.created ? 201 : 200, result);
+        return true;
+      }
+      if (partnerGrant && method === "DELETE") {
+        const result = await partnerStore.revokeSocialTribePartnerOrganizerGrant({
+          sessionToken, userId: user.id, socialTribeId,
+          grantId: requireUuid(partnerGrant[2], "Grant"),
+        });
+        sendJson(response, 200, result);
+        return true;
+      }
+      sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, {
+        Allow: partnerGrants ? "GET, POST" : "DELETE",
+      });
+      return true;
+    }
+
+    if (socialParticipantPath) {
+      if ([...url.searchParams].length > 0) throw invalid("Esta rota não aceita parâmetros de consulta.");
+      const sessionToken = readCookie(request, SESSION_COOKIE);
+      if (pathname === "/api/partner-participants/preview") {
+        if (method !== "POST") { sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, { Allow: "POST" }); return true; }
+        const payload = await readJson(request, { maxSize: 4096, requireObject: true, invalidMessage: "Objeto JSON inválido." });
+        if (Object.keys(payload).length !== 1 || !Object.hasOwn(payload, "claimToken")) throw invalid("Informe somente o segredo de resgate.");
+        const result = await partnerStore.previewPartnerEventParticipantClaim({
+          sessionToken, userId: user.id,
+          rawClaimToken: requiredString(payload.claimToken, "segredo de resgate", 43, 43),
+        });
+        sendJson(response, 200, result);
+        return true;
+      }
+      if (pathname === "/api/partner-participants/confirm") {
+        if (method !== "POST") { sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, { Allow: "POST" }); return true; }
+        const payload = await readJson(request, { maxSize: 4096, requireObject: true, invalidMessage: "Objeto JSON inválido." });
+        if (Object.keys(payload).length !== 1 || !Object.hasOwn(payload, "confirmationToken")) throw invalid("Informe somente o token da prévia.");
+        const result = await partnerStore.confirmPartnerEventParticipantClaim({
+          sessionToken, userId: user.id,
+          rawConfirmationToken: requiredString(payload.confirmationToken, "token de confirmação", 43, 43),
+        });
+        sendJson(response, 200, result);
+        return true;
+      }
+      if (pathname === "/api/me/partner-participants") {
+        if (method !== "GET") { sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, { Allow: "GET" }); return true; }
+        sendJson(response, 200, await partnerStore.listMyPartnerEventParticipants({ sessionToken, userId: user.id }));
+        return true;
+      }
+      const joinParticipant = pathname.match(/^\/api\/me\/partner-participants\/([^/]+)\/join-tribe$/);
+      if (joinParticipant) {
+        if (method !== "POST") { sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, { Allow: "POST" }); return true; }
+        const payload = await readJson(request, { maxSize: 4096, requireObject: true, invalidMessage: "Objeto JSON inválido." });
+        if (Object.keys(payload).some(key => key !== "password") ||
+            (payload.password !== undefined && typeof payload.password !== "string")) throw invalid("Dados de entrada inválidos.");
+        const result = await partnerStore.joinPartnerEventParticipantTribe({
+          sessionToken, userId: user.id, participantId: requireUuid(joinParticipant[1], "Participante"),
+          password: payload.password,
+        });
+        sendJson(response, 200, result);
+        return true;
+      }
+      const unlinkParticipant = pathname.match(/^\/api\/me\/partner-participants\/([^/]+)$/);
+      if (unlinkParticipant) {
+        if (method !== "DELETE") { sendJson(response, 405, { error: "Método não permitido.", code: "method_not_allowed" }, { Allow: "DELETE" }); return true; }
+        sendJson(response, 200, await partnerStore.unlinkMyPartnerEventParticipant({
+          sessionToken, userId: user.id, participantId: requireUuid(unlinkParticipant[1], "Participante"),
+        }));
+        return true;
+      }
+      sendJson(response, 404, { error: "Rota não encontrada.", code: "route_not_found" });
       return true;
     }
 
@@ -1067,10 +1244,12 @@ export async function handleSocialRequest(request, response, url) {
     return true;
   } catch (error) {
     if ((error.statusCode ?? 500) >= 500) {
-      console.error("Falha na API social:", error);
+      if (socialPartnerIntegrationPath) console.error("Falha na operação de autorização social de parceiro:", { code: "social_partner_operation_failed" });
+      else console.error("Falha na API social:", error);
     }
     sendJson(response, error.statusCode ?? 500, {
       error: error.statusCode ? error.message : "Não foi possível concluir a operação.",
+      ...(socialPartnerIntegrationPath ? { code: error.code ?? (error.statusCode === 400 ? "invalid_payload" : "social_partner_operation_failed") } : {}),
     });
     return true;
   }
